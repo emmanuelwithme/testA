@@ -1,0 +1,17 @@
+name: Formal ETF Backtest
+on:
+  workflow_dispatch:
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy yfinance requests
+      - run: python investment_backtest.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: formal-backtest-results
+          path: backtest_results/
