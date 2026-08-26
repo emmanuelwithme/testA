@@ -22,28 +22,65 @@ jobs:
           from pathlib import Path
           p = Path('investment_backtest.py')
           s = p.read_text()
-          # Keep Yahoo stable with current yfinance; avoid repair dependency/path issues.
           s = s.replace("repair=True,timeout=30", "repair=False,timeout=60")
-          # FRED can stall on hosted runners. Fail each request faster so the backtest can proceed
-          # to explicit missing-macro checks rather than burning the entire 60-minute job.
           s = s.replace("timeout=40,headers={'User-Agent':'Mozilla/5.0'}", "timeout=15,headers={'User-Agent':'Mozilla/5.0'}")
-          # pandas 3 reset_index uses the existing index name when present. Normalize the key
-          # explicitly before merge_asof so daily/weekly/monthly joins always have a 'date' column.
           old_asof = "def asof_cols(base,other,prefix,cols):\n    tmp=other[cols].copy();tmp.columns=[prefix+c for c in cols];return pd.merge_asof(base.sort_index().reset_index().rename(columns={'index':'date'}),tmp.sort_index().reset_index().rename(columns={'index':'date'}),on='date',direction='backward').set_index('date')"
           new_asof = "def asof_cols(base,other,prefix,cols):\n    left=base.sort_index().copy(); left.index.name='date'; left=left.reset_index()\n    tmp=other[cols].copy(); tmp.columns=[prefix+c for c in cols]; tmp.index.name='date'; tmp=tmp.sort_index().reset_index()\n    left['date']=pd.to_datetime(left['date']); tmp['date']=pd.to_datetime(tmp['date'])\n    return pd.merge_asof(left.sort_values('date'),tmp.sort_values('date'),on='date',direction='backward').set_index('date')"
           if old_asof in s:
               s = s.replace(old_asof, new_asof)
-          # CPI availability calculation must only run on a DatetimeIndex.
           old = "avail=pd.Series(yoy.values,index=(yoy.index+pd.DateOffset(months=1,days=14)),name=out); m=m.join(avail,how='outer')"
           new = "\n        if isinstance(yoy.index, pd.DatetimeIndex) and len(yoy):\n            avail=pd.Series(yoy.values,index=(yoy.index+pd.DateOffset(months=1,days=14)),name=out); m=m.join(avail,how='outer')\n        else:\n            m[out]=np.nan"
           if old in s:
               s = s.replace(old, new)
-          # MONTH_START is a NumPy boolean array while the other triggers are Series.
-          # Normalize every trigger to a Series before fillna so pandas 3 / NumPy paths agree.
           s = s.replace("for i,b in enumerate(s.fillna(False).values):", "for i,b in enumerate(pd.Series(s,index=x.index).fillna(False).values):")
           p.write_text(s)
           PY
       - run: python investment_backtest.py
+      - name: Restrict formal evaluation window to 2019-2026
+        run: |
+          python - <<'PY'
+          import math
+          from pathlib import Path
+          import pandas as pd
+          out=Path('backtest_results')
+          start=pd.Timestamp('2019-01-01')
+          end=pd.Timestamp('2026-08-26')
+          def filt(path,datecol):
+              d=pd.read_csv(path)
+              dt=pd.to_datetime(d[datecol],errors='coerce')
+              d=d[(dt>=start)&(dt<=end)].copy()
+              d.to_csv(path,index=False)
+              return d
+          events=filt(out/'ALL_events.csv','signal_date')
+          bench=filt(out/'ALL_monthly_benchmark.csv','signal_date')
+          for a in ['QQQ','VT','0050']:
+              filt(out/f'{a}_events.csv','signal_date')
+              filt(out/f'{a}_monthly_benchmark.csv','signal_date')
+          # Keep OHLCV/signals warm-up history intact for indicator correctness; formal event outputs are 2019+.
+          mature=events[events['correct_3m'].notna()].copy()
+          mature['correct_3m']=mature['correct_3m'].astype(str).str.lower().map({'true':True,'false':False})
+          rows=[]
+          for a,g in mature.groupby('asset'):
+              b=bench[bench.asset==a]
+              ms=g[g['month_start'].astype(str).str.lower()=='true']
+              rows.append(dict(asset=a,events_mature=len(g),accuracy_3m=g.correct_3m.mean(),mean_ret_3m=g.ret_3m.mean(),median_ret_3m=g.ret_3m.median(),mean_mae_3m=g.mae_3m.mean(),mean_mfe_3m=g.mfe_3m.mean(),median_mae_3m=g.mae_3m.median(),median_mfe_3m=g.mfe_3m.median(),month_start_events=len(ms),month_start_accuracy=ms.correct_3m.mean(),benchmark_monthly_buy_accuracy=b.buy_correct.mean(),benchmark_monthly_mean_ret3m=b.ret_3m.mean()))
+          if rows:
+              r=pd.DataFrame(rows)
+              rows.append(dict(asset='ALL_EQUAL_WEIGHT',events_mature=int(r.events_mature.sum()),accuracy_3m=r.accuracy_3m.mean(),mean_ret_3m=r.mean_ret_3m.mean(),median_ret_3m=r.median_ret_3m.mean(),mean_mae_3m=r.mean_mae_3m.mean(),mean_mfe_3m=r.mean_mfe_3m.mean(),median_mae_3m=r.median_mae_3m.mean(),median_mfe_3m=r.median_mfe_3m.mean(),month_start_events=int(r.month_start_events.sum()),month_start_accuracy=r.month_start_accuracy.mean(),benchmark_monthly_buy_accuracy=r.benchmark_monthly_buy_accuracy.mean(),benchmark_monthly_mean_ret3m=r.benchmark_monthly_mean_ret3m.mean()))
+          pd.DataFrame(rows).to_csv(out/'summary.csv',index=False)
+          st=mature.groupby(['asset','executed_state']).agg(n=('correct_3m','size'),accuracy=('correct_3m','mean'),ret3=('ret_3m','mean'),mae3=('mae_3m','mean'),mfe3=('mfe_3m','mean')).reset_index()
+          st.to_csv(out/'state_summary.csv',index=False)
+          mature['year']=pd.to_datetime(mature.signal_date).dt.year
+          yr=mature.groupby(['asset','year']).agg(n=('correct_3m','size'),accuracy=('correct_3m','mean'),ret3=('ret_3m','mean'),mae3=('mae_3m','mean'),mfe3=('mfe_3m','mean')).reset_index()
+          yr.to_csv(out/'yearly_summary.csv',index=False)
+          cis=[]
+          for a,g in mature.groupby('asset'):
+              n=len(g); k=int(g.correct_3m.sum()); p=k/n; z=1.959963984540054
+              den=1+z*z/n; center=(p+z*z/(2*n))/den; half=z*math.sqrt(p*(1-p)/n+z*z/(4*n*n))/den
+              cis.append(dict(asset=a,n=n,correct=k,accuracy=p,ci95_low=center-half,ci95_high=center+half))
+          pd.DataFrame(cis).to_csv(out/'accuracy_ci.csv',index=False)
+          print('Formal evaluation window:',start.date(),'to',end.date(),'mature events=',len(mature),'benchmark=',len(bench))
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
