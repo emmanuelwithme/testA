@@ -22,8 +22,18 @@ jobs:
           from pathlib import Path
           p = Path('investment_backtest.py')
           s = p.read_text()
-          s = s.replace("timeout=40,headers={'User-Agent':'Mozilla/5.0'}", "timeout=120,headers={'User-Agent':'Mozilla/5.0'}")
+          # Keep Yahoo stable with current yfinance; avoid repair dependency/path issues.
           s = s.replace("repair=True,timeout=30", "repair=False,timeout=60")
+          # FRED can stall on hosted runners. Fail each request faster so the backtest can proceed
+          # to explicit missing-macro checks rather than burning the entire 60-minute job.
+          s = s.replace("timeout=40,headers={'User-Agent':'Mozilla/5.0'}", "timeout=15,headers={'User-Agent':'Mozilla/5.0'}")
+          # pandas 3 reset_index uses the existing index name when present. Normalize the key
+          # explicitly before merge_asof so daily/weekly/monthly joins always have a 'date' column.
+          old_asof = "def asof_cols(base,other,prefix,cols):\n    tmp=other[cols].copy();tmp.columns=[prefix+c for c in cols];return pd.merge_asof(base.sort_index().reset_index().rename(columns={'index':'date'}),tmp.sort_index().reset_index().rename(columns={'index':'date'}),on='date',direction='backward').set_index('date')"
+          new_asof = "def asof_cols(base,other,prefix,cols):\n    left=base.sort_index().copy(); left.index.name='date'; left=left.reset_index()\n    tmp=other[cols].copy(); tmp.columns=[prefix+c for c in cols]; tmp.index.name='date'; tmp=tmp.sort_index().reset_index()\n    left['date']=pd.to_datetime(left['date']); tmp['date']=pd.to_datetime(tmp['date'])\n    return pd.merge_asof(left.sort_values('date'),tmp.sort_values('date'),on='date',direction='backward').set_index('date')"
+          if old_asof in s:
+              s = s.replace(old_asof, new_asof)
+          # CPI availability calculation must only run on a DatetimeIndex.
           old = "avail=pd.Series(yoy.values,index=(yoy.index+pd.DateOffset(months=1,days=14)),name=out); m=m.join(avail,how='outer')"
           new = "\n        if isinstance(yoy.index, pd.DatetimeIndex) and len(yoy):\n            avail=pd.Series(yoy.values,index=(yoy.index+pd.DateOffset(months=1,days=14)),name=out); m=m.join(avail,how='outer')\n        else:\n            m[out]=np.nan"
           if old in s:
