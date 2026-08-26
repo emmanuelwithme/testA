@@ -1,6 +1,11 @@
 name: Formal ETF Backtest
 on:
   workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - 'investment_backtest.py'
+      - '.github/workflows/formal_backtest.yml'
 jobs:
   backtest:
     runs-on: ubuntu-latest
