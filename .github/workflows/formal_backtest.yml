@@ -38,6 +38,9 @@ jobs:
           new = "\n        if isinstance(yoy.index, pd.DatetimeIndex) and len(yoy):\n            avail=pd.Series(yoy.values,index=(yoy.index+pd.DateOffset(months=1,days=14)),name=out); m=m.join(avail,how='outer')\n        else:\n            m[out]=np.nan"
           if old in s:
               s = s.replace(old, new)
+          # MONTH_START is a NumPy boolean array while the other triggers are Series.
+          # Normalize every trigger to a Series before fillna so pandas 3 / NumPy paths agree.
+          s = s.replace("for i,b in enumerate(s.fillna(False).values):", "for i,b in enumerate(pd.Series(s,index=x.index).fillna(False).values):")
           p.write_text(s)
           PY
       - run: python investment_backtest.py
