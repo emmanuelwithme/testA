@@ -9,7 +9,7 @@ on:
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,7 +22,8 @@ jobs:
           from pathlib import Path
           p=Path('investment_backtest.py'); s=p.read_text()
           s=s.replace("repair=True,timeout=30","repair=False,timeout=60")
-          s=s.replace("timeout=40,headers={'User-Agent':'Mozilla/5.0'}","timeout=15,headers={'User-Agent':'Mozilla/5.0'}")
+          # Keep FRED requests patient enough for the hosted runner; prior 15s patch caused all core series to time out.
+          s=s.replace("timeout=40,headers={'User-Agent':'Mozilla/5.0'}","timeout=60,headers={'User-Agent':'Mozilla/5.0'}")
           old="def asof_cols(base,other,prefix,cols):\n    tmp=other[cols].copy();tmp.columns=[prefix+c for c in cols];return pd.merge_asof(base.sort_index().reset_index().rename(columns={'index':'date'}),tmp.sort_index().reset_index().rename(columns={'index':'date'}),on='date',direction='backward').set_index('date')"
           new="def asof_cols(base,other,prefix,cols):\n    left=base.sort_index().copy(); left.index.name='date'; left=left.reset_index()\n    tmp=other[cols].copy(); tmp.columns=[prefix+c for c in cols]; tmp.index.name='date'; tmp=tmp.sort_index().reset_index()\n    left['date']=pd.to_datetime(left['date']); tmp['date']=pd.to_datetime(tmp['date'])\n    return pd.merge_asof(left.sort_values('date'),tmp.sort_values('date'),on='date',direction='backward').set_index('date')"
           if old in s: s=s.replace(old,new)
@@ -33,6 +34,22 @@ jobs:
           PY
       - name: Run V80 formal validation
         run: python v80_backtest.py
+      - name: Validate point-in-time macro coverage
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          p='v80_results/macro_daily.csv'
+          m=pd.read_csv(p)
+          core=['BAMLH0A0HYM2','DGS2','DGS10','DGS30','CPI_YOY','CORE_CPI_YOY']
+          bad=[]
+          for c in core:
+              n=pd.to_numeric(m[c],errors='coerce').notna().sum() if c in m else 0
+              print(c, 'non-null=', n)
+              if n < 500: bad.append((c,n))
+          if bad:
+              raise SystemExit(f'INVALID V80 RUN: insufficient macro coverage {bad}')
+          print('Macro coverage validation passed')
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
