@@ -1,0 +1,41 @@
+name: V78 Phase2 Formal Validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - 'v78_phase2.py'
+      - '.github/workflows/v78_phase2.yml'
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy yfinance requests scikit-learn
+      - name: Patch shared runtime compatibility
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('investment_backtest.py'); s=p.read_text()
+          s=s.replace("repair=True,timeout=30","repair=False,timeout=60")
+          s=s.replace("timeout=40,headers={'User-Agent':'Mozilla/5.0'}","timeout=15,headers={'User-Agent':'Mozilla/5.0'}")
+          old="def asof_cols(base,other,prefix,cols):\n    tmp=other[cols].copy();tmp.columns=[prefix+c for c in cols];return pd.merge_asof(base.sort_index().reset_index().rename(columns={'index':'date'}),tmp.sort_index().reset_index().rename(columns={'index':'date'}),on='date',direction='backward').set_index('date')"
+          new="def asof_cols(base,other,prefix,cols):\n    left=base.sort_index().copy(); left.index.name='date'; left=left.reset_index()\n    tmp=other[cols].copy(); tmp.columns=[prefix+c for c in cols]; tmp.index.name='date'; tmp=tmp.sort_index().reset_index()\n    left['date']=pd.to_datetime(left['date']); tmp['date']=pd.to_datetime(tmp['date'])\n    return pd.merge_asof(left.sort_values('date'),tmp.sort_values('date'),on='date',direction='backward').set_index('date')"
+          if old in s: s=s.replace(old,new)
+          old2="avail=pd.Series(yoy.values,index=(yoy.index+pd.DateOffset(months=1,days=14)),name=out); m=m.join(avail,how='outer')"
+          new2="\n        if isinstance(yoy.index,pd.DatetimeIndex) and len(yoy):\n            avail=pd.Series(yoy.values,index=(yoy.index+pd.DateOffset(months=1,days=14)),name=out); m=m.join(avail,how='outer')\n        else:\n            m[out]=np.nan"
+          if old2 in s: s=s.replace(old2,new2)
+          p.write_text(s)
+          PY
+      - name: Run V78 phase-2 validation
+        run: python v78_phase2.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v78-phase2-results
+          path: v78_phase2_results/
+          if-no-files-found: warn
