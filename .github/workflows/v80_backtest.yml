@@ -5,6 +5,7 @@ on:
     branches: [ master ]
     paths:
       - 'v80_backtest.py'
+      - 'v80_halfyear_cohorts.py'
       - 'v80_macro.py'
       - '.github/workflows/v80_backtest.yml'
 jobs:
@@ -34,6 +35,8 @@ jobs:
           PY
       - name: Run V80 formal validation
         run: python v80_backtest.py
+      - name: Run exact half-year cohort benchmark
+        run: python v80_halfyear_cohorts.py
       - name: Validate point-in-time macro coverage and plausibility
         run: |
           python - <<'PY'
@@ -57,7 +60,6 @@ jobs:
               if hi is not None and len(z) and (z.v>hi).any(): bad.append((c,'above_plausible_range',float(z.v.max())))
               for y in range(2019,2027):
                   q=z[z[dc].dt.year==y]
-                  # ffilled daily macro should cover most calendar days when source history exists.
                   if y<2026 and len(q)<300: bad.append((c,f'year_{y}_coverage',len(q)))
               return s
 
@@ -77,6 +79,23 @@ jobs:
               for b in bad: print('INVALID:',b)
               raise SystemExit(f'INVALID V80 RUN: macro history is not point-in-time complete/plausible; {bad[:12]}')
           print('Strict macro coverage + plausibility validation passed')
+          PY
+      - name: Validate half-year benchmark definition
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          p='v80_results/halfyear_cohort_benchmark.csv'
+          d=pd.read_csv(p)
+          req=['asset','period','buy_hold_return','v80_return','dca_return_on_total_budget','dca_months_invested','v80_minus_bh_return_pp','v80_minus_bh_mdd_pp']
+          miss=[c for c in req if c not in d.columns]
+          if miss: raise SystemExit(f'INVALID cohort output missing columns: {miss}')
+          expected_assets={'QQQ','VT','0050','VWRA','PPH'}
+          if set(d.asset.unique()) != expected_assets: raise SystemExit(f'INVALID assets: {set(d.asset.unique())}')
+          bad=d[(~d.is_incomplete_period.astype(bool)) & (d.dca_months_invested != 6)]
+          if len(bad): raise SystemExit(f'INVALID DCA: completed half-years must have exactly 6 monthly installments; bad rows={len(bad)}')
+          stress=d[d.period.isin(['2020_H1','2022_H1','2022_H2'])]
+          if len(stress) != 15: raise SystemExit(f'INVALID stress coverage: expected 15 rows, got {len(stress)}')
+          print('Half-year cohort validation passed:', len(d), 'rows; stress rows=', len(stress))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
