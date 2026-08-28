@@ -34,21 +34,49 @@ jobs:
           PY
       - name: Run V80 formal validation
         run: python v80_backtest.py
-      - name: Validate point-in-time macro coverage
+      - name: Validate point-in-time macro coverage and plausibility
         run: |
           python - <<'PY'
           import pandas as pd
+          import numpy as np
           p='v80_results/macro_daily.csv'
           m=pd.read_csv(p)
-          core=['BAMLH0A0HYM2','DGS2','DGS10','DGS30','CPI_YOY','CORE_CPI_YOY']
+          dc='Date' if 'Date' in m.columns else m.columns[0]
+          m[dc]=pd.to_datetime(m[dc],errors='coerce')
+          m=m.dropna(subset=[dc]).sort_values(dc)
+          evalm=m[(m[dc]>=pd.Timestamp('2019-01-01'))&(m[dc]<=pd.Timestamp('2026-08-26'))].copy()
           bad=[]
-          for c in core:
-              n=pd.to_numeric(m[c],errors='coerce').notna().sum() if c in m else 0
-              print(c, 'non-null=', n)
-              if n < 500: bad.append((c,n))
+
+          def valid_span(c, latest_need='2026-07-31', first_need='2019-01-15', lo=None, hi=None):
+              s=pd.to_numeric(evalm[c],errors='coerce') if c in evalm else pd.Series(dtype=float)
+              z=evalm.loc[s.notna(),[dc]].copy(); z['v']=s[s.notna()].values
+              first=z[dc].min() if len(z) else pd.NaT; last=z[dc].max() if len(z) else pd.NaT
+              print(c,'non-null=',len(z),'first=',first,'last=',last,'min=',z.v.min() if len(z) else None,'max=',z.v.max() if len(z) else None)
+              if len(z)==0 or first>pd.Timestamp(first_need) or last<pd.Timestamp(latest_need): bad.append((c,'coverage',first,last))
+              if lo is not None and len(z) and (z.v<lo).any(): bad.append((c,'below_plausible_range',float(z.v.min())))
+              if hi is not None and len(z) and (z.v>hi).any(): bad.append((c,'above_plausible_range',float(z.v.max())))
+              for y in range(2019,2027):
+                  q=z[z[dc].dt.year==y]
+                  # ffilled daily macro should cover most calendar days when source history exists.
+                  if y<2026 and len(q)<300: bad.append((c,f'year_{y}_coverage',len(q)))
+              return s
+
+          valid_span('BAMLH0A0HYM2',lo=0,hi=30)
+          valid_span('DGS2',lo=-2,hi=20)
+          valid_span('DGS10',lo=-2,hi=20)
+          valid_span('DGS30',lo=-2,hi=20)
+          for c in ['CPI_YOY','CORE_CPI_YOY']:
+              s=valid_span(c,latest_need='2026-06-30',first_need='2019-02-28',lo=-5,hi=15)
+              z=evalm.loc[s.notna(),[dc]].copy(); z['v']=s[s.notna()].values
+              changes=z[z.v.ne(z.v.shift())][dc]
+              print(c,'distinct release changes=',len(changes),'max release gap days=',changes.diff().dt.days.max() if len(changes)>1 else None)
+              if len(changes)<70: bad.append((c,'too_few_monthly_release_changes',len(changes)))
+              if len(changes)>1 and changes.diff().dt.days.max()>70: bad.append((c,'release_gap_gt_70d',int(changes.diff().dt.days.max())))
+
           if bad:
-              raise SystemExit(f'INVALID V80 RUN: insufficient macro coverage {bad}')
-          print('Macro coverage validation passed')
+              for b in bad: print('INVALID:',b)
+              raise SystemExit(f'INVALID V80 RUN: macro history is not point-in-time complete/plausible; {bad[:12]}')
+          print('Strict macro coverage + plausibility validation passed')
           PY
       - uses: actions/upload-artifact@v4
         if: always()
