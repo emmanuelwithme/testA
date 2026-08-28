@@ -50,8 +50,40 @@ def _licensed_hy_override(path='data/licensed/hyoas_bamlh0a0hym2.csv'):
         return pd.Series(dtype=float,name='BAMLH0A0HYM2')
 
 
+def _validated_public_hy_history():
+    # Historical FRED archive captured before the public ICE/BofA history was shortened.
+    # Never fabricate missing values: require long coverage and validate the overlapping
+    # 2023+ section against the newer independent archive before accepting it.
+    full=_read_csv_url(
+        'https://raw.githubusercontent.com/csaladenes/eco-archive/main/BAMLH0A0HYM2.csv',
+        date_col='DATE',value_col='BAMLH0A0HYM2',name='BAMLH0A0HYM2')
+    recent=_read_csv_url(
+        'https://raw.githubusercontent.com/TGRADEA/gradea-fred-archive/main/BAMLH0A0HYM2.csv',
+        name='BAMLH0A0HYM2')
+    if len(full)==0: return pd.Series(dtype=float,name='BAMLH0A0HYM2')
+    if full.index.min()>pd.Timestamp('2016-01-15') or full.index.max()<pd.Timestamp('2023-08-01'):
+        print('WARN full HY archive rejected: insufficient span',full.index.min(),full.index.max())
+        return pd.Series(dtype=float,name='BAMLH0A0HYM2')
+    if len(recent):
+        ov=pd.concat([full.rename('full'),recent.rename('recent')],axis=1,join='inner').dropna()
+        if len(ov)<250:
+            print('WARN full HY archive rejected: insufficient overlap',len(ov))
+            return pd.Series(dtype=float,name='BAMLH0A0HYM2')
+        diff=(ov['full']-ov['recent']).abs()
+        print('HY OAS overlap validation n=',len(ov),'max_abs_diff=',float(diff.max()),'mean_abs_diff=',float(diff.mean()))
+        if float(diff.max())>0.03 or float(diff.mean())>0.005:
+            print('WARN full HY archive rejected: overlap mismatch')
+            return pd.Series(dtype=float,name='BAMLH0A0HYM2')
+        # Prefer the fresher mirror where available; use archived historical values before it starts.
+        combined=recent.combine_first(full).sort_index()
+    else:
+        combined=full.sort_index()
+    combined.name='BAMLH0A0HYM2'
+    print('HY OAS source=validated_public_full_history',combined.index.min(),combined.index.max(),len(combined))
+    return combined
+
+
 def _bls_series(series_id, name):
-    # Use small request windows; public BLS requests can silently return partial spans.
     rows=[]
     for start,end in [(2016,2018),(2019,2021),(2022,2024),(2025,2026)]:
         try:
@@ -72,7 +104,6 @@ def _bls_series(series_id, name):
             print('WARN BLS',series_id,start,end,e)
     if not rows: return pd.Series(dtype=float,name=name)
     d=pd.DataFrame(rows,columns=['date','value']).drop_duplicates('date').sort_values('date')
-    # Force a continuous monthly calendar so pct_change(12) can never bridge a multi-year data hole.
     mi=pd.date_range(d.date.min(),d.date.max(),freq='MS')
     s=pd.Series(d.value.values,index=d.date,name=name).reindex(mi)
     return s
@@ -94,18 +125,15 @@ def build_macro_v80():
     base='https://raw.githubusercontent.com/TGRADEA/gradea-fred-archive/main/'
     hy=_licensed_hy_override()
     if len(hy)==0:
-        hy=_read_csv_url(base+'BAMLH0A0HYM2.csv',name='BAMLH0A0HYM2')
-        if len(hy): print('HY OAS source=public_archive',hy.index.min(),hy.index.max(),len(hy))
+        hy=_validated_public_hy_history()
     d2=_read_csv_url(base+'DGS2.csv',name='DGS2')
     d10=_read_csv_url(base+'DGS10.csv',name='DGS10')
-    # Yahoo ^TYX is the CBOE 30-year Treasury yield index quoted as yield x10 on some feeds.
     d30=_yahoo_close('^TYX','DGS30')
     if len(d30) and d30.median()>20: d30=d30/10.0
     cpi=_bls_series('CUUR0000SA0','CPI_LEVEL')
     core=_bls_series('CUUR0000SA0L1E','CORE_CPI_LEVEL')
     cpi_yoy=cpi.pct_change(12,fill_method=None)*100 if len(cpi) else pd.Series(dtype=float)
     core_yoy=core.pct_change(12,fill_method=None)*100 if len(core) else pd.Series(dtype=float)
-    # Point-in-time: month t CPI is made usable only around mid t+1; no future release is backfilled earlier.
     if len(cpi_yoy): cpi_yoy.index=cpi_yoy.index+pd.DateOffset(months=1,days=14)
     if len(core_yoy): core_yoy.index=core_yoy.index+pd.DateOffset(months=1,days=14)
     cpi_yoy.name='CPI_YOY'; core_yoy.name='CORE_CPI_YOY'
@@ -126,7 +154,6 @@ def build_macro_v80():
     hy_stress=(hy>4.5)|(m['HY_20D']>1.0)|(m['HY_5D']>0.5)
     vol_stress=(vix>30)|((vix>25)&(m['VIX_5D']>7)); move_stress=(move>140)|((move>120)&(m['MOVE_5D']>20))
     m['MACRO_VETO']=(hy_stress|(vol_stress&move_stress)|((hy>3.5)&(vix>25))).fillna(False)
-    # If HY is absent historically this calculation remains technically executable, but the strict workflow gate rejects the run.
     m['MACRO_HEADWIND']=((m['CPI_YOY']>4.0)&(m['DGS2_60D']>0.75)).fillna(False)
     m['MACRO_STRESS_SCORE']=((hy.clip(2,8)-2)/6+(vix.clip(10,50)-10)/40+(move.clip(70,180)-70)/110)/3
     return m
