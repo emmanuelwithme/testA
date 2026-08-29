@@ -7,6 +7,7 @@ on:
       - 'v80_backtest.py'
       - 'v80_halfyear_cohorts.py'
       - 'v80_macro.py'
+      - 'v80_runaway_audit.py'
       - '.github/workflows/v80_backtest.yml'
 jobs:
   backtest:
@@ -37,6 +38,8 @@ jobs:
         run: python v80_backtest.py
       - name: Run exact half-year cohort benchmark
         run: python v80_halfyear_cohorts.py
+      - name: Audit Runaway Up and Runaway Down outputs
+        run: python v80_runaway_audit.py
       - name: Validate point-in-time macro coverage and plausibility
         run: |
           python - <<'PY'
