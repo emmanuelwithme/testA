@@ -5,9 +5,12 @@ on:
     branches: [ master ]
     paths:
       - 'v80_backtest.py'
+      - 'v80_dfns_backtest.py'
       - 'v80_halfyear_cohorts.py'
+      - 'v80_dfns_halfyear_cohorts.py'
       - 'v80_macro.py'
       - 'v80_runaway_audit.py'
+      - 'V80.md'
       - '.github/workflows/v80_backtest.yml'
 jobs:
   backtest:
@@ -29,30 +32,23 @@ jobs:
           new="def asof_cols(base,other,prefix,cols):\n    left=base.sort_index().copy(); left.index.name='date'; left=left.reset_index()\n    tmp=other[cols].copy(); tmp.columns=[prefix+c for c in cols]; tmp.index.name='date'; tmp=tmp.sort_index().reset_index()\n    left['date']=pd.to_datetime(left['date']); tmp['date']=pd.to_datetime(tmp['date'])\n    return pd.merge_asof(left.sort_values('date'),tmp.sort_values('date'),on='date',direction='backward').set_index('date')"
           if old in s: s=s.replace(old,new)
           p.write_text(s)
-
           p=Path('v80_backtest.py'); s=p.read_text()
           s=s.replace("from investment_backtest import get_prices, build_macro, add_indicators, period_bars, asof_cols","from investment_backtest import get_prices, add_indicators, period_bars, asof_cols\nfrom v80_macro import build_macro_v80 as build_macro")
           p.write_text(s)
           PY
-      - name: Run V80 formal validation
-        run: python v80_backtest.py
-      - name: Run exact half-year cohort benchmark
-        run: python v80_halfyear_cohorts.py
-      - name: Audit Runaway Up and Runaway Down outputs
+      - name: Run V80 formal validation including dedicated DFNS class
+        run: python v80_dfns_backtest.py
+      - name: Run exact half-year cohort benchmark including DFNS
+        run: python v80_dfns_halfyear_cohorts.py
+      - name: Audit Runaway Up and Runaway Down outputs including DFNS
         run: python v80_runaway_audit.py
       - name: Validate point-in-time macro coverage and plausibility
         run: |
           python - <<'PY'
           import pandas as pd
-          import numpy as np
-          p='v80_results/macro_daily.csv'
-          m=pd.read_csv(p)
-          dc='Date' if 'Date' in m.columns else m.columns[0]
-          m[dc]=pd.to_datetime(m[dc],errors='coerce')
-          m=m.dropna(subset=[dc]).sort_values(dc)
-          evalm=m[(m[dc]>=pd.Timestamp('2019-01-01'))&(m[dc]<=pd.Timestamp('2026-08-26'))].copy()
-          bad=[]
-
+          p='v80_results/macro_daily.csv'; m=pd.read_csv(p); dc='Date' if 'Date' in m.columns else m.columns[0]
+          m[dc]=pd.to_datetime(m[dc],errors='coerce'); m=m.dropna(subset=[dc]).sort_values(dc)
+          evalm=m[(m[dc]>=pd.Timestamp('2019-01-01'))&(m[dc]<=pd.Timestamp('2026-08-26'))].copy(); bad=[]
           def valid_span(c, latest_need='2026-07-31', first_need='2019-01-15', lo=None, hi=None):
               s=pd.to_numeric(evalm[c],errors='coerce') if c in evalm else pd.Series(dtype=float)
               z=evalm.loc[s.notna(),[dc]].copy(); z['v']=s[s.notna()].values
@@ -65,40 +61,35 @@ jobs:
                   q=z[z[dc].dt.year==y]
                   if y<2026 and len(q)<300: bad.append((c,f'year_{y}_coverage',len(q)))
               return s
-
-          valid_span('BAMLH0A0HYM2',lo=0,hi=30)
-          valid_span('DGS2',lo=-2,hi=20)
-          valid_span('DGS10',lo=-2,hi=20)
-          valid_span('DGS30',lo=-2,hi=20)
+          valid_span('BAMLH0A0HYM2',lo=0,hi=30); valid_span('DGS2',lo=-2,hi=20); valid_span('DGS10',lo=-2,hi=20); valid_span('DGS30',lo=-2,hi=20)
           for c in ['CPI_YOY','CORE_CPI_YOY']:
               s=valid_span(c,latest_need='2026-06-30',first_need='2019-02-28',lo=-5,hi=15)
-              z=evalm.loc[s.notna(),[dc]].copy(); z['v']=s[s.notna()].values
-              changes=z[z.v.ne(z.v.shift())][dc]
-              print(c,'distinct release changes=',len(changes),'max release gap days=',changes.diff().dt.days.max() if len(changes)>1 else None)
+              z=evalm.loc[s.notna(),[dc]].copy(); z['v']=s[s.notna()].values; changes=z[z.v.ne(z.v.shift())][dc]
               if len(changes)<70: bad.append((c,'too_few_monthly_release_changes',len(changes)))
               if len(changes)>1 and changes.diff().dt.days.max()>70: bad.append((c,'release_gap_gt_70d',int(changes.diff().dt.days.max())))
-
           if bad:
               for b in bad: print('INVALID:',b)
-              raise SystemExit(f'INVALID V80 RUN: macro history is not point-in-time complete/plausible; {bad[:12]}')
+              raise SystemExit(f'INVALID V80 RUN: macro history incomplete/implausible; {bad[:12]}')
           print('Strict macro coverage + plausibility validation passed')
           PY
-      - name: Validate half-year benchmark definition
+      - name: Validate half-year benchmark definition and DFNS history boundary
         run: |
           python - <<'PY'
           import pandas as pd
-          p='v80_results/halfyear_cohort_benchmark.csv'
-          d=pd.read_csv(p)
+          d=pd.read_csv('v80_results/halfyear_cohort_benchmark.csv')
           req=['asset','period','buy_hold_return','v80_return','dca_return_on_total_budget','dca_months_invested','v80_minus_bh_return_pp','v80_minus_bh_mdd_pp']
           miss=[c for c in req if c not in d.columns]
           if miss: raise SystemExit(f'INVALID cohort output missing columns: {miss}')
-          expected_assets={'QQQ','VT','0050','VWRA','PPH'}
-          if set(d.asset.unique()) != expected_assets: raise SystemExit(f'INVALID assets: {set(d.asset.unique())}')
+          expected={'QQQ','VT','0050','VWRA','PPH','DFNS'}
+          if set(d.asset.unique()) != expected: raise SystemExit(f'INVALID assets: {set(d.asset.unique())}')
           bad=d[(~d.is_incomplete_period.astype(bool)) & (d.dca_months_invested != 6)]
-          if len(bad): raise SystemExit(f'INVALID DCA: completed half-years must have exactly 6 monthly installments; bad rows={len(bad)}')
+          if len(bad): raise SystemExit(f'INVALID DCA installment count: {len(bad)}')
           stress=d[d.period.isin(['2020_H1','2022_H1','2022_H2'])]
-          if len(stress) != 15: raise SystemExit(f'INVALID stress coverage: expected 15 rows, got {len(stress)}')
-          print('Half-year cohort validation passed:', len(d), 'rows; stress rows=', len(stress))
+          if len(stress) != 15: raise SystemExit(f'INVALID stress coverage: expected 15 rows from assets that existed then, got {len(stress)}')
+          dfns=d[d.asset.eq('DFNS')]
+          if len(dfns)==0 or dfns.period.min()!='2023_H2': raise SystemExit(f'INVALID DFNS history boundary: {dfns.period.tolist()}')
+          if (dfns.period<'2023_H2').any(): raise SystemExit('INVALID: fabricated/partial DFNS pre-2023H2 cohort')
+          print('Half-year cohort validation passed:',len(d),'rows; DFNS first full cohort=2023_H2; stress rows=',len(stress))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
