@@ -8,7 +8,7 @@ INITIAL = 100000.0
 
 
 def _annual_metrics(nav):
-    s = pd.Series(nav, dtype=float)
+    s = pd.Series(dict(nav), dtype=float).sort_index()
     if len(s) < 2 or not np.isfinite(s.iloc[0]) or s.iloc[0] <= 0:
         return dict(final_value=np.nan, total_return=np.nan, max_drawdown=np.nan,
                     trough_date=pd.NaT, recovery_date=pd.NaT, recovery_days=np.nan,
@@ -28,7 +28,7 @@ def _annual_metrics(nav):
     downside = r[r < 0]
     sortino = (r.mean() / downside.std(ddof=1) * np.sqrt(252)
                if len(downside) > 1 and downside.std(ddof=1) > 0 else np.nan)
-    years = max((s.index[-1] - s.index[0]).days / 365.25, 1 / 365.25)
+    years = max((s.index[-1] - s.index[0]).total_seconds() / (365.25 * 86400), 1 / 365.25)
     cagr = (s.iloc[-1] / s.iloc[0]) ** (1 / years) - 1
     calmar = cagr / abs(max_drawdown) if max_drawdown < 0 else np.nan
     return dict(final_value=float(s.iloc[-1]), total_return=float(total_return),
@@ -39,7 +39,6 @@ def _annual_metrics(nav):
 
 
 def _xirr(cashflows):
-    # cashflows: [(date, amount)], contributions negative, terminal value positive.
     if len(cashflows) < 2:
         return np.nan
     dates = [pd.Timestamp(d) for d, _ in cashflows]
@@ -47,9 +46,11 @@ def _xirr(cashflows):
     if not ((vals < 0).any() and (vals > 0).any()):
         return np.nan
     t0 = dates[0]
-    yrs = np.array([(d - t0).days / 365.25 for d in dates], dtype=float)
+    yrs = np.array([(d - t0).total_seconds() / (365.25 * 86400) for d in dates], dtype=float)
+
     def npv(rate):
         return float(np.sum(vals / np.power(1.0 + rate, yrs)))
+
     lo, hi = -0.9999, 10.0
     flo, fhi = npv(lo), npv(hi)
     for _ in range(20):
@@ -78,7 +79,8 @@ def simulate(asset, x, events, strategy, start, end, initial=INITIAL):
         return None
     start, end = z.index[0], z.index[-1]
     cash, units, trades = initial, 0.0, 0
-    nav = []
+    # Synthetic pre-open baseline is required so the first trading day's P/L is not discarded.
+    nav = [(start - pd.Timedelta(seconds=1), initial)]
     monthly_seen = None
     dca_flows = []
     installment = initial / 6.0
@@ -133,8 +135,7 @@ def simulate(asset, x, events, strategy, start, end, initial=INITIAL):
         nav.append((dt, cash + units * cl))
         first = False
 
-    ns = pd.Series(dict(nav)).sort_index()
-    m = _annual_metrics(ns)
+    m = _annual_metrics(nav)
     m['trade_count'] = trades
     m['ending_cash'] = float(cash)
     m['ending_units'] = float(units)
@@ -167,7 +168,8 @@ def main():
         for year in range(2019, 2027):
             for half, (m1, m2) in [('H1', (1, 6)), ('H2', (7, 12))]:
                 nominal_start = pd.Timestamp(year, m1, 1)
-                nominal_end = min(pd.Timestamp(year, m2, 1) + pd.offsets.MonthEnd(0), END_EVAL)
+                canonical_half_end = pd.Timestamp(year, m2, 1) + pd.offsets.MonthEnd(0)
+                nominal_end = min(canonical_half_end, END_EVAL)
                 if nominal_start > END_EVAL:
                     continue
                 z = x[(x.index >= nominal_start) & (x.index <= nominal_end)].dropna(subset=['Open', 'Close'])
@@ -178,9 +180,10 @@ def main():
                 finish = float(z.Close.iloc[-1])
                 result = {s: simulate(asset, x, events, s, start, end) for s in ['BUY_HOLD', 'V80', 'DCA']}
                 bh, v80, dca = result['BUY_HOLD'], result['V80'], result['DCA']
+                incomplete = bool(nominal_end < canonical_half_end)
                 rows.append({
                     'asset': asset, 'period': f'{year}_{half}', 'start_date': start, 'end_date': end,
-                    'is_incomplete_period': bool(end < pd.Timestamp(year, m2, 1) + pd.offsets.MonthEnd(0)),
+                    'is_incomplete_period': incomplete,
                     'start_price_open': entry, 'end_price_close': finish,
                     'return_basis': 'price_return; dividends_and_fees_consistently_excluded',
                     'buy_hold_return': bh['total_return'], 'buy_hold_max_drawdown': bh['max_drawdown'],
@@ -203,6 +206,21 @@ def main():
                 })
 
     out = pd.DataFrame(rows)
+
+    # Internal hard gates: historical completed halves must never be mislabeled incomplete,
+    # completed DCA halves must have six installments, and B&H return must equal end-close/start-open.
+    historical = out[out['period'] != '2026_H2']
+    if historical['is_incomplete_period'].any():
+        bad = historical.loc[historical.is_incomplete_period, ['asset', 'period', 'end_date']]
+        raise SystemExit(f'INVALID historical half-year completeness labels: {bad.to_dict("records")[:10]}')
+    bad_dca = out[(~out.is_incomplete_period) & (out.dca_months_invested != 6)]
+    if len(bad_dca):
+        raise SystemExit(f'INVALID completed DCA installment count: {bad_dca[["asset","period","dca_months_invested"]].to_dict("records")[:10]}')
+    expected_bh = out.end_price_close / out.start_price_open - 1.0
+    if not np.allclose(out.buy_hold_return, expected_bh, rtol=0, atol=1e-10, equal_nan=True):
+        diff = (out.buy_hold_return - expected_bh).abs().max()
+        raise SystemExit(f'INVALID Buy & Hold return baseline; max abs diff={diff}')
+
     out.to_csv(OUT / 'halfyear_cohort_benchmark.csv', index=False)
     stress = out[out.period.isin(['2020_H1', '2022_H1', '2022_H2'])].copy()
     stress.to_csv(OUT / 'halfyear_stress_2020_2022.csv', index=False)
@@ -210,6 +228,7 @@ def main():
     print('Stress-test rows:', len(stress))
     print('DCA definition: fixed initial_budget/6 on each month first actual trading day; unused budget remains cash.')
     print('Return basis: price return; dividends and fees consistently excluded across all three cohorts.')
+    print('Historical completeness labels and pre-open NAV baseline validation passed.')
 
 
 if __name__ == '__main__':
