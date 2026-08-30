@@ -36,13 +36,13 @@ jobs:
           s=s.replace("from investment_backtest import get_prices, build_macro, add_indicators, period_bars, asof_cols","from investment_backtest import get_prices, add_indicators, period_bars, asof_cols\nfrom v80_macro import build_macro_v80 as build_macro")
           p.write_text(s)
           PY
-      - name: Run V80 formal validation including dedicated DFNS class
+      - name: Run V80 formal validation including dedicated DFNS class and yen carry overlay
         run: python v80_dfns_backtest.py
       - name: Run exact half-year cohort benchmark including DFNS
         run: python v80_dfns_halfyear_cohorts.py
       - name: Audit Runaway Up and Runaway Down outputs including DFNS
         run: python v80_runaway_audit.py
-      - name: Validate point-in-time macro coverage and plausibility
+      - name: Validate point-in-time macro and yen carry coverage
         run: |
           python - <<'PY'
           import pandas as pd
@@ -62,15 +62,46 @@ jobs:
                   if y<2026 and len(q)<300: bad.append((c,f'year_{y}_coverage',len(q)))
               return s
           valid_span('BAMLH0A0HYM2',lo=0,hi=30); valid_span('DGS2',lo=-2,hi=20); valid_span('DGS10',lo=-2,hi=20); valid_span('DGS30',lo=-2,hi=20)
+          valid_span('USDJPY',lo=50,hi=250)
           for c in ['CPI_YOY','CORE_CPI_YOY']:
               s=valid_span(c,latest_need='2026-06-30',first_need='2019-02-28',lo=-5,hi=15)
               z=evalm.loc[s.notna(),[dc]].copy(); z['v']=s[s.notna()].values; changes=z[z.v.ne(z.v.shift())][dc]
               if len(changes)<70: bad.append((c,'too_few_monthly_release_changes',len(changes)))
               if len(changes)>1 and changes.diff().dt.days.max()>70: bad.append((c,'release_gap_gt_70d',int(changes.diff().dt.days.max())))
+          yen_req=['USDJPY_1D_PCT','USDJPY_5D_PCT','JPY_APPRECIATION_1D_PCT','JPY_APPRECIATION_5D_PCT','YEN_CARRY_CONFIRM_COUNT','YEN_CARRY_RISK_LEVEL','YEN_CARRY_HEADWIND','YEN_CARRY_VETO','YEN_CARRY_BUY_SCALE']
+          missing=[c for c in yen_req if c not in evalm.columns]
+          if missing: bad.append(('YEN_FIELDS_MISSING',missing))
+          if not missing:
+              level=pd.to_numeric(evalm['YEN_CARRY_RISK_LEVEL'],errors='coerce')
+              scale=pd.to_numeric(evalm['YEN_CARRY_BUY_SCALE'],errors='coerce')
+              if not level.dropna().isin([0,1,2,3]).all(): bad.append(('YEN_LEVEL_INVALID',sorted(level.dropna().unique().tolist())))
+              if not scale.dropna().isin([0.0,0.5,0.75,1.0]).all(): bad.append(('YEN_SCALE_INVALID',sorted(scale.dropna().unique().tolist())))
+              severe=evalm[level.eq(3)]
+              if len(severe):
+                  conf=pd.to_numeric(severe['YEN_CARRY_CONFIRM_COUNT'],errors='coerce')
+                  if (conf<2).any(): bad.append(('YEN_LEVEL3_WITHOUT_2_CONFIRMATIONS',int((conf<2).sum())))
+              print('Yen carry level counts=',level.value_counts(dropna=False).sort_index().to_dict())
           if bad:
               for b in bad: print('INVALID:',b)
-              raise SystemExit(f'INVALID V80 RUN: macro history incomplete/implausible; {bad[:12]}')
-          print('Strict macro coverage + plausibility validation passed')
+              raise SystemExit(f'INVALID V80 RUN: macro/yen history incomplete or implausible; {bad[:12]}')
+          print('Strict macro + yen carry coverage/plausibility validation passed')
+          PY
+      - name: Validate yen overlay on event outputs
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          p='v80_results/ALL_events.csv'
+          d=pd.read_csv(p)
+          req=['yen_carry_buy_scale','yen_carry_risk_level','yen_carry_confirm_count','jpy_appreciation_1d_pct','jpy_appreciation_5d_pct']
+          miss=[c for c in req if c not in d.columns]
+          if miss: raise SystemExit(f'INVALID yen overlay output missing columns: {miss}')
+          lvl=pd.to_numeric(d.yen_carry_risk_level,errors='coerce')
+          sc=pd.to_numeric(d.yen_carry_buy_scale,errors='coerce')
+          if not lvl.dropna().isin([0,1,2,3]).all(): raise SystemExit('INVALID yen carry risk level in events')
+          if not sc.dropna().isin([0.0,0.5,0.75,1.0]).all(): raise SystemExit('INVALID yen carry buy scale in events')
+          bad=d[(lvl>=3)&d.executed_state.isin(['LEFT_BUY','RIGHT_ADD'])]
+          if len(bad): raise SystemExit(f'INVALID severe yen carry risk still allowed new buys: {len(bad)}')
+          print('Yen event overlay validation passed; level counts=',lvl.value_counts().sort_index().to_dict())
           PY
       - name: Validate half-year benchmark definition and DFNS history boundary
         run: |
