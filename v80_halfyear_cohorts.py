@@ -176,14 +176,18 @@ def main():
                 if len(z) < 20:
                     continue
                 start, end = z.index[0], z.index[-1]
+                observed_months = int(z.index.to_period('M').nunique())
                 entry = float(z.Open.iloc[0])
                 finish = float(z.Close.iloc[-1])
                 result = {s: simulate(asset, x, events, s, start, end) for s in ['BUY_HOLD', 'V80', 'DCA']}
                 bh, v80, dca = result['BUY_HOLD'], result['V80'], result['DCA']
-                incomplete = bool(nominal_end < canonical_half_end)
+                # A half is incomplete whenever the evaluation date truncates the half OR
+                # the asset has fewer than six observed trading months (e.g. post-inception
+                # partial history such as DFNS 2023H1). Never backfill missing pre-inception months.
+                incomplete = bool(nominal_end < canonical_half_end or observed_months < 6)
                 rows.append({
                     'asset': asset, 'period': f'{year}_{half}', 'start_date': start, 'end_date': end,
-                    'is_incomplete_period': incomplete,
+                    'is_incomplete_period': incomplete, 'observed_trading_months': observed_months,
                     'start_price_open': entry, 'end_price_close': finish,
                     'return_basis': 'price_return; dividends_and_fees_consistently_excluded',
                     'buy_hold_return': bh['total_return'], 'buy_hold_max_drawdown': bh['max_drawdown'],
@@ -207,15 +211,18 @@ def main():
 
     out = pd.DataFrame(rows)
 
-    # Internal hard gates: historical completed halves must never be mislabeled incomplete,
-    # completed DCA halves must have six installments, and B&H return must equal end-close/start-open.
-    historical = out[out['period'] != '2026_H2']
-    if historical['is_incomplete_period'].any():
-        bad = historical.loc[historical.is_incomplete_period, ['asset', 'period', 'end_date']]
-        raise SystemExit(f'INVALID historical half-year completeness labels: {bad.to_dict("records")[:10]}')
+    # Hard gates: complete halves must have six observed trading months and six DCA
+    # installments. Partial inception/current halves are allowed only when explicitly
+    # marked incomplete and must retain the actual observed months without backfill.
+    bad_complete_months = out[(~out.is_incomplete_period) & (out.observed_trading_months != 6)]
+    if len(bad_complete_months):
+        raise SystemExit(f'INVALID completed half-year month count: {bad_complete_months[["asset","period","observed_trading_months"]].to_dict("records")[:10]}')
     bad_dca = out[(~out.is_incomplete_period) & (out.dca_months_invested != 6)]
     if len(bad_dca):
         raise SystemExit(f'INVALID completed DCA installment count: {bad_dca[["asset","period","dca_months_invested"]].to_dict("records")[:10]}')
+    bad_partial = out[(out.is_incomplete_period) & (out.dca_months_invested > out.observed_trading_months)]
+    if len(bad_partial):
+        raise SystemExit(f'INVALID partial DCA installment count: {bad_partial[["asset","period","observed_trading_months","dca_months_invested"]].to_dict("records")[:10]}')
     expected_bh = out.end_price_close / out.start_price_open - 1.0
     if not np.allclose(out.buy_hold_return, expected_bh, rtol=0, atol=1e-10, equal_nan=True):
         diff = (out.buy_hold_return - expected_bh).abs().max()
@@ -228,7 +235,7 @@ def main():
     print('Stress-test rows:', len(stress))
     print('DCA definition: fixed initial_budget/6 on each month first actual trading day; unused budget remains cash.')
     print('Return basis: price return; dividends and fees consistently excluded across all three cohorts.')
-    print('Historical completeness labels and pre-open NAV baseline validation passed.')
+    print('Complete/partial half-year labels, DCA installments and pre-open NAV baseline validation passed.')
 
 
 if __name__ == '__main__':
