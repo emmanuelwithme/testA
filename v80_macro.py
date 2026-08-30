@@ -51,9 +51,6 @@ def _licensed_hy_override(path='data/licensed/hyoas_bamlh0a0hym2.csv'):
 
 
 def _validated_public_hy_history():
-    # Frozen pre-April-2026 snapshot committed on 2026-02-10, before FRED/ICE
-    # shortened public history to a rolling three-year window. This is historical
-    # observed BAMLH0A0HYM2 data, not a proxy or reconstructed estimate.
     historical=_read_csv_url(
         'https://raw.githubusercontent.com/maaurocp/Trading_Protocol/2b4beabfa89088dce2a877c272dd2dc6038f029d/data/raw/fred_BAMLH0A0HYM2.csv',
         date_col='date',value_col='BAMLH0A0HYM2',name='BAMLH0A0HYM2')
@@ -129,19 +126,62 @@ def build_macro_v80():
     if len(cpi_yoy): cpi_yoy.index=cpi_yoy.index+pd.DateOffset(months=1,days=14)
     if len(core_yoy): core_yoy.index=core_yoy.index+pd.DateOffset(months=1,days=14)
     cpi_yoy.name='CPI_YOY'; core_yoy.name='CORE_CPI_YOY'
-    vix=_yahoo_close('^VIX','VIX'); move=_yahoo_close('^MOVE','MOVE'); dxy=_yahoo_close('DX-Y.NYB','DXY'); wti=_yahoo_close('CL=F','WTI')
+
+    vix=_yahoo_close('^VIX','VIX')
+    move=_yahoo_close('^MOVE','MOVE')
+    dxy=_yahoo_close('DX-Y.NYB','DXY')
+    wti=_yahoo_close('CL=F','WTI')
+    # Yahoo JPY=X is USD/JPY (yen per U.S. dollar). Falling USDJPY means yen appreciation.
+    usdjpy=_yahoo_close('JPY=X','USDJPY')
+
     idx=pd.date_range(START,END,freq='D'); m=pd.DataFrame(index=idx)
-    for s in [hy,d2,d10,d30,cpi_yoy,core_yoy,vix,move,dxy,wti]:
+    for s in [hy,d2,d10,d30,cpi_yoy,core_yoy,vix,move,dxy,wti,usdjpy]:
         if len(s): m=m.join(s,how='outer')
     m=m.sort_index().ffill()
     if 'DFF' not in m: m['DFF']=np.nan
-    for c in ['BAMLH0A0HYM2','DGS2','DGS10','DGS30','CPI_YOY','CORE_CPI_YOY','VIX','MOVE']:
+    for c in ['BAMLH0A0HYM2','DGS2','DGS10','DGS30','CPI_YOY','CORE_CPI_YOY','VIX','MOVE','DXY','USDJPY']:
         if c not in m: m[c]=np.nan
+
     hy=m['BAMLH0A0HYM2']; vix=m['VIX']; move=m['MOVE']
-    m['HY_5D']=hy-hy.shift(5); m['HY_20D']=hy-hy.shift(20); m['VIX_5D']=vix-vix.shift(5); m['MOVE_5D']=move-move.shift(5)
+    m['HY_5D']=hy-hy.shift(5); m['HY_20D']=hy-hy.shift(20)
+    m['VIX_5D']=vix-vix.shift(5); m['MOVE_5D']=move-move.shift(5)
     m['DGS2_60D']=m['DGS2']-m['DGS2'].shift(60); m['DFF_60D']=m['DFF']-m['DFF'].shift(60)
-    hy_stress=(hy>4.5)|(m['HY_20D']>1.0)|(m['HY_5D']>0.5); vol_stress=(vix>30)|((vix>25)&(m['VIX_5D']>7)); move_stress=(move>140)|((move>120)&(m['MOVE_5D']>20))
-    m['MACRO_VETO']=(hy_stress|(vol_stress&move_stress)|((hy>3.5)&(vix>25))).fillna(False)
-    m['MACRO_HEADWIND']=((m['CPI_YOY']>4.0)&(m['DGS2_60D']>0.75)).fillna(False)
-    m['MACRO_STRESS_SCORE']=((hy.clip(2,8)-2)/6+(vix.clip(10,50)-10)/40+(move.clip(70,180)-70)/110)/3
+
+    # Yen carry-trade radar. These are market-observed point-in-time inputs only.
+    # Positive JPY_APPRECIATION means the yen strengthened against the dollar.
+    m['USDJPY_1D_PCT']=m['USDJPY'].pct_change(1)*100
+    m['USDJPY_5D_PCT']=m['USDJPY'].pct_change(5)*100
+    m['JPY_APPRECIATION_1D_PCT']=-m['USDJPY_1D_PCT']
+    m['JPY_APPRECIATION_5D_PCT']=-m['USDJPY_5D_PCT']
+    m['DXY_5D_PCT']=m['DXY'].pct_change(5)*100
+
+    yen_fast=(m['JPY_APPRECIATION_1D_PCT']>=1.5)|(m['JPY_APPRECIATION_5D_PCT']>=3.0)
+    yen_severe=(m['JPY_APPRECIATION_1D_PCT']>=2.5)|(m['JPY_APPRECIATION_5D_PCT']>=5.0)
+    yen_confirm_count=pd.concat([
+        (m['VIX_5D']>5.0),
+        (m['MOVE_5D']>10.0),
+        (m['HY_5D']>0.25),
+    ],axis=1).fillna(False).sum(axis=1)
+    m['YEN_CARRY_CONFIRM_COUNT']=yen_confirm_count.astype(int)
+    m['YEN_CARRY_RISK_LEVEL']=np.select(
+        [yen_severe&(yen_confirm_count>=2), yen_fast&(yen_confirm_count>=1), yen_fast],
+        [3,2,1], default=0).astype(int)
+    m['YEN_CARRY_HEADWIND']=(m['YEN_CARRY_RISK_LEVEL']>=1)
+    # Yen alone never gets a hard veto. Level 3 requires severe yen appreciation PLUS
+    # at least two cross-asset stress confirmations (VIX/MOVE/HY OAS).
+    m['YEN_CARRY_VETO']=(m['YEN_CARRY_RISK_LEVEL']>=3)
+    m['YEN_CARRY_BUY_SCALE']=m['YEN_CARRY_RISK_LEVEL'].map({0:1.0,1:0.75,2:0.50,3:0.0}).astype(float)
+
+    hy_stress=(hy>4.5)|(m['HY_20D']>1.0)|(m['HY_5D']>0.5)
+    vol_stress=(vix>30)|((vix>25)&(m['VIX_5D']>7))
+    move_stress=(move>140)|((move>120)&(m['MOVE_5D']>20))
+    base_veto=(hy_stress|(vol_stress&move_stress)|((hy>3.5)&(vix>25)))
+    m['MACRO_VETO']=(base_veto|m['YEN_CARRY_VETO']).fillna(False)
+    inflation_headwind=((m['CPI_YOY']>4.0)&(m['DGS2_60D']>0.75))
+    m['MACRO_HEADWIND']=(inflation_headwind|m['YEN_CARRY_HEADWIND']).fillna(False)
+
+    base_stress=((hy.clip(2,8)-2)/6+(vix.clip(10,50)-10)/40+(move.clip(70,180)-70)/110)/3
+    yen_stress=m['YEN_CARRY_RISK_LEVEL']/3.0
+    # Keep legacy macro stress comparable while allowing the yen radar to raise stress modestly.
+    m['MACRO_STRESS_SCORE']=(0.85*base_stress+0.15*yen_stress).clip(0,1.5)
     return m
