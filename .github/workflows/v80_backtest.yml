@@ -108,7 +108,7 @@ jobs:
           python - <<'PY'
           import pandas as pd
           d=pd.read_csv('v80_results/halfyear_cohort_benchmark.csv')
-          req=['asset','period','buy_hold_return','v80_return','dca_return_on_total_budget','dca_months_invested','v80_minus_bh_return_pp','v80_minus_bh_mdd_pp']
+          req=['asset','period','buy_hold_return','v80_return','dca_return_on_total_budget','dca_months_invested','v80_minus_bh_return_pp','v80_minus_bh_mdd_pp','is_incomplete_period']
           miss=[c for c in req if c not in d.columns]
           if miss: raise SystemExit(f'INVALID cohort output missing columns: {miss}')
           expected={'QQQ','VT','0050','VWRA','PPH','DFNS'}
@@ -117,10 +117,14 @@ jobs:
           if len(bad): raise SystemExit(f'INVALID DCA installment count: {len(bad)}')
           stress=d[d.period.isin(['2020_H1','2022_H1','2022_H2'])]
           if len(stress) != 15: raise SystemExit(f'INVALID stress coverage: expected 15 rows from assets that existed then, got {len(stress)}')
-          dfns=d[d.asset.eq('DFNS')]
-          if len(dfns)==0 or dfns.period.min()!='2023_H2': raise SystemExit(f'INVALID DFNS history boundary: {dfns.period.tolist()}')
-          if (dfns.period<'2023_H2').any(): raise SystemExit('INVALID: fabricated/partial DFNS pre-2023H2 cohort')
-          print('Half-year cohort validation passed:',len(d),'rows; DFNS first full cohort=2023_H2; stress rows=',len(stress))
+          dfns=d[d.asset.eq('DFNS')].copy()
+          if len(dfns)==0: raise SystemExit('INVALID DFNS history boundary: no DFNS cohorts')
+          pre_full=dfns[dfns.period<'2023_H2']
+          if set(pre_full.period.tolist()) != {'2023_H1'}: raise SystemExit(f'INVALID DFNS pre-full cohorts: {pre_full.period.tolist()}')
+          if not pre_full.is_incomplete_period.astype(bool).all(): raise SystemExit('INVALID: DFNS 2023H1 must be explicitly marked incomplete')
+          full=dfns[~dfns.is_incomplete_period.astype(bool)]
+          if len(full)==0 or full.period.min()!='2023_H2': raise SystemExit(f'INVALID DFNS first full cohort: {full.period.tolist()}')
+          print('Half-year cohort validation passed:',len(d),'rows; DFNS 2023H1 retained incomplete; first full cohort=2023_H2; stress rows=',len(stress))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
