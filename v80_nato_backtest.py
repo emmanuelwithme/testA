@@ -13,13 +13,12 @@ import yfinance as yf
 import time
 import v80_backtest as core
 
-# HANetf Future of Defence UCITS ETF. Official LSE USD RIC: NATO.L.
+# HANetf Future of Defence UCITS ETF. Official LSE USD line used by this backtest: NATO.L.
 core.ASSETS['NATO'] = 'NATO.L'
 
 # Dedicated defence/cyber/policy/geopolitical satellite parameters.
 # These are V80 execution parameters, not the portfolio's 5% allocation weight.
-# We reuse the locked defence-satellite sizing skeleton, but ALL results are
-# recomputed from NATO's own history; no DFNS price/result is reused.
+# ALL results are recomputed from NATO's own history; no DFNS price/result is reused.
 core.PARAM['NATO'] = dict(
     dd=-.12,
     left_frac=.15,
@@ -42,9 +41,9 @@ _original_state_events = core.state_events
 def get_prices_allow_post_inception(ticker):
     """Use shared strict history gate for old assets; allow genuine shorter NATO history only.
 
-    Fund inception is 2023-07-03 and the LSE USD line listed 2023-07-04.
-    Require genuine post-listing observations and never create/backfill dates
-    before the instrument actually traded.
+    HANetf fund inception is 2023-07-03; the LSE USD trading line is available
+    from 2023-07-04 in the selected market-data source. Require genuine
+    post-listing observations and never create/backfill dates before trading.
     """
     if ticker != 'NATO.L':
         return _original_get_prices(ticker)
@@ -158,26 +157,14 @@ def state_events_with_yen(asset, x):
 core.state_events = state_events_with_yen
 
 
-def _remove_partial_inception_half(path):
-    """Do not pretend NATO existed for the entire 2023H2; LSE listing was 2023-07-04."""
-    p = core.OUT / path
-    if not p.exists():
-        return
-    d = pd.read_csv(p)
-    if {'asset','period'}.issubset(d.columns):
-        d = d[~((d.asset == 'NATO') & (d.period == '2023_H2'))].copy()
-        d.to_csv(p, index=False)
-
-
 def main():
     core.main()
-    _remove_partial_inception_half('halfyear_summary.csv')
     readme = core.OUT / 'NATO_V80_NOTE.md'
     readme.write_text(
         'NATO is the dedicated V80 defence/aerospace/military + cyber/policy/geopolitical equity ETF class.\n'
         'Instrument: HANetf Future of Defence UCITS ETF; ticker used: NATO.L (LSE USD line).\n'
-        'Fund inception: 2023-07-03; LSE listing: 2023-07-04; no synthetic pre-listing history.\n'
-        '2023H2 is treated as an inception half; first complete half-year cohort is 2024H1.\n'
+        'Fund inception: 2023-07-03; selected LSE USD market-data history starts 2023-07-04; no synthetic pre-listing history.\n'
+        'Half-year cohort completeness is determined only from actual observed trading months; 2023H2 is complete if Jul-Dec are all present.\n'
         'Primary risk-adjusted metrics: Sortino + Calmar; secondary: MDD + Recovery Time; Sharpe auxiliary.\n'
         'Cross-market confirmation uses ITA/XLI/CIBR point-in-time market data only; historical policy/news events are not hindsight-filled.\n'
         'All V80 equity assets also use the point-in-time yen carry overlay.\n',
