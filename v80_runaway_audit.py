@@ -2,7 +2,7 @@ from pathlib import Path
 import pandas as pd
 
 OUT = Path('v80_results')
-ASSETS = ['QQQ', 'VT', '0050', 'VWRA', 'PPH', 'DFNS']
+ASSETS = ['QQQ', 'VT', '0050', 'VWRA', 'PPH', 'NATO']
 
 
 def _to_bool(s):
@@ -56,7 +56,7 @@ summary=pd.DataFrame(summary_rows); events=pd.DataFrame(event_rows)
 summary.to_csv(OUT/'runaway_audit_summary.csv',index=False); events.to_csv(OUT/'runaway_audit_events.csv',index=False)
 bad=[]
 for _,r in summary.iterrows():
-    # DFNS has a much shorter history (inception 2023-03-31), but it still must
+    # NATO has a shorter history (LSE listing 2023-07-04), but it still must
     # produce both directions if the locked V80 conditions occurred. Zero is
     # never silently accepted: it is an audit failure requiring inspection.
     if r.runaway_up_true_days<=0 or r.runaway_up_cluster_events_5d<=0: bad.append((r.asset,'RUNAWAY_UP missing'))
@@ -65,4 +65,4 @@ for _,r in summary.iterrows():
     if r.runaway_up_down_overlap_days>0: bad.append((r.asset,f'RUNAWAY_UP/DOWN overlap={r.runaway_up_down_overlap_days}'))
 print(summary.to_string(index=False))
 if bad: raise SystemExit(f'INVALID V80 runaway audit: {bad}')
-print('Runaway Up/Down audit passed for all V80 assets including DFNS.')
+print('Runaway Up/Down audit passed for all V80 assets including NATO.')
