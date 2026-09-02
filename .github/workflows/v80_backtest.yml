@@ -5,9 +5,9 @@ on:
     branches: [ master ]
     paths:
       - 'v80_backtest.py'
-      - 'v80_dfns_backtest.py'
+      - 'v80_nato_backtest.py'
       - 'v80_halfyear_cohorts.py'
-      - 'v80_dfns_halfyear_cohorts.py'
+      - 'v80_nato_halfyear_cohorts.py'
       - 'v80_macro.py'
       - 'v80_runaway_audit.py'
       - 'V80.md'
@@ -36,11 +36,11 @@ jobs:
           s=s.replace("from investment_backtest import get_prices, build_macro, add_indicators, period_bars, asof_cols","from investment_backtest import get_prices, add_indicators, period_bars, asof_cols\nfrom v80_macro import build_macro_v80 as build_macro")
           p.write_text(s)
           PY
-      - name: Run V80 formal validation including dedicated DFNS class and yen carry overlay
-        run: python v80_dfns_backtest.py
-      - name: Run exact half-year cohort benchmark including DFNS
-        run: python v80_dfns_halfyear_cohorts.py
-      - name: Audit Runaway Up and Runaway Down outputs including DFNS
+      - name: Run V80 formal validation including dedicated NATO defence-cyber class and yen carry overlay
+        run: python v80_nato_backtest.py
+      - name: Run exact half-year cohort benchmark including NATO
+        run: python v80_nato_halfyear_cohorts.py
+      - name: Audit Runaway Up and Runaway Down outputs including NATO
         run: python v80_runaway_audit.py
       - name: Validate point-in-time macro and yen carry coverage
         run: |
@@ -103,7 +103,7 @@ jobs:
           if len(bad): raise SystemExit(f'INVALID severe yen carry risk still allowed new buys: {len(bad)}')
           print('Yen event overlay validation passed; level counts=',lvl.value_counts().sort_index().to_dict())
           PY
-      - name: Validate half-year benchmark definition and DFNS history boundary
+      - name: Validate half-year benchmark definition and NATO history boundary
         run: |
           python - <<'PY'
           import pandas as pd
@@ -111,20 +111,21 @@ jobs:
           req=['asset','period','buy_hold_return','v80_return','dca_return_on_total_budget','dca_months_invested','v80_minus_bh_return_pp','v80_minus_bh_mdd_pp','is_incomplete_period']
           miss=[c for c in req if c not in d.columns]
           if miss: raise SystemExit(f'INVALID cohort output missing columns: {miss}')
-          expected={'QQQ','VT','0050','VWRA','PPH','DFNS'}
+          expected={'QQQ','VT','0050','VWRA','PPH','NATO'}
           if set(d.asset.unique()) != expected: raise SystemExit(f'INVALID assets: {set(d.asset.unique())}')
           bad=d[(~d.is_incomplete_period.astype(bool)) & (d.dca_months_invested != 6)]
           if len(bad): raise SystemExit(f'INVALID DCA installment count: {len(bad)}')
           stress=d[d.period.isin(['2020_H1','2022_H1','2022_H2'])]
           if len(stress) != 15: raise SystemExit(f'INVALID stress coverage: expected 15 rows from assets that existed then, got {len(stress)}')
-          dfns=d[d.asset.eq('DFNS')].copy()
-          if len(dfns)==0: raise SystemExit('INVALID DFNS history boundary: no DFNS cohorts')
-          pre_full=dfns[dfns.period<'2023_H2']
-          if set(pre_full.period.tolist()) != {'2023_H1'}: raise SystemExit(f'INVALID DFNS pre-full cohorts: {pre_full.period.tolist()}')
-          if not pre_full.is_incomplete_period.astype(bool).all(): raise SystemExit('INVALID: DFNS 2023H1 must be explicitly marked incomplete')
-          full=dfns[~dfns.is_incomplete_period.astype(bool)]
-          if len(full)==0 or full.period.min()!='2023_H2': raise SystemExit(f'INVALID DFNS first full cohort: {full.period.tolist()}')
-          print('Half-year cohort validation passed:',len(d),'rows; DFNS 2023H1 retained incomplete; first full cohort=2023_H2; stress rows=',len(stress))
+          nato=d[d.asset.eq('NATO')].copy()
+          if len(nato)==0: raise SystemExit('INVALID NATO history boundary: no NATO cohorts')
+          pre=nato[nato.period<'2023_H2']
+          if len(pre): raise SystemExit(f'INVALID NATO pre-inception cohorts: {pre.period.tolist()}')
+          inc=nato[nato.period.eq('2023_H2')]
+          if len(inc)!=1 or not inc.is_incomplete_period.astype(bool).all(): raise SystemExit('INVALID: NATO 2023H2 must be explicitly marked incomplete')
+          full=nato[~nato.is_incomplete_period.astype(bool)]
+          if len(full)==0 or full.period.min()!='2024_H1': raise SystemExit(f'INVALID NATO first full cohort: {full.period.tolist()}')
+          print('Half-year cohort validation passed:',len(d),'rows; NATO 2023H2 retained incomplete; first full cohort=2024H1; stress rows=',len(stress))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
