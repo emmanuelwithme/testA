@@ -122,10 +122,15 @@ jobs:
           pre=nato[nato.period<'2023_H2']
           if len(pre): raise SystemExit(f'INVALID NATO pre-inception cohorts: {pre.period.tolist()}')
           inc=nato[nato.period.eq('2023_H2')]
-          if len(inc)!=1 or not inc.is_incomplete_period.astype(bool).all(): raise SystemExit('INVALID: NATO 2023H2 must be explicitly marked incomplete')
+          if len(inc)!=1: raise SystemExit('INVALID NATO 2023H2 cohort cardinality')
+          months=int(pd.to_numeric(inc.dca_months_invested,errors='coerce').iloc[0])
+          incomplete=bool(inc.is_incomplete_period.astype(bool).iloc[0])
+          if months==6 and incomplete: raise SystemExit('INVALID NATO 2023H2: six observed trading months must not be force-marked incomplete')
+          if months<6 and not incomplete: raise SystemExit('INVALID NATO 2023H2: missing observed trading months must be incomplete')
           full=nato[~nato.is_incomplete_period.astype(bool)]
-          if len(full)==0 or full.period.min()!='2024_H1': raise SystemExit(f'INVALID NATO first full cohort: {full.period.tolist()}')
-          print('Half-year cohort validation passed:',len(d),'rows; NATO 2023H2 retained incomplete; first full cohort=2024H1; stress rows=',len(stress))
+          expected_first='2023_H2' if months==6 else '2024_H1'
+          if len(full)==0 or full.period.min()!=expected_first: raise SystemExit(f'INVALID NATO first full cohort: expected {expected_first}, got {full.period.tolist()}')
+          print('Half-year cohort validation passed:',len(d),'rows; NATO 2023H2 observed months=',months,'first full cohort=',full.period.min(),'stress rows=',len(stress))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
