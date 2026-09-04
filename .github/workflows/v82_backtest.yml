@@ -5,6 +5,7 @@ on:
     branches: [ master ]
     paths:
       - 'v82_backtest_phase1.py'
+      - 'v82_backtest_phase1_retry.py'
       - '.github/workflows/v82_backtest.yml'
       - 'investment_backtest.py'
       - 'v80_backtest.py'
@@ -31,7 +32,7 @@ jobs:
           p.write_text(s)
           PY
       - name: Run V82 phase1 deployment calibration
-        run: python v82_backtest_phase1.py
+        run: python v82_backtest_phase1_retry.py
       - name: Validate required core outputs
         run: |
           python - <<'PY'
