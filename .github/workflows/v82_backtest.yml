@@ -1,0 +1,55 @@
+name: V82 Formal Deployment Backtest
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - 'v82_backtest_phase1.py'
+      - '.github/workflows/v82_backtest.yml'
+      - 'investment_backtest.py'
+      - 'v80_backtest.py'
+      - 'v80_macro.py'
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy yfinance requests scikit-learn
+      - name: Patch shared runtime compatibility
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('investment_backtest.py'); s=p.read_text()
+          s=s.replace("repair=True,timeout=30","repair=False,timeout=60")
+          old="def asof_cols(base,other,prefix,cols):\n    tmp=other[cols].copy();tmp.columns=[prefix+c for c in cols];return pd.merge_asof(base.sort_index().reset_index().rename(columns={'index':'date'}),tmp.sort_index().reset_index().rename(columns={'index':'date'}),on='date',direction='backward').set_index('date')"
+          new="def asof_cols(base,other,prefix,cols):\n    left=base.sort_index().copy(); left.index.name='date'; left=left.reset_index()\n    tmp=other[cols].copy(); tmp.columns=[prefix+c for c in cols]; tmp.index.name='date'; tmp=tmp.sort_index().reset_index()\n    left['date']=pd.to_datetime(left['date']); tmp['date']=pd.to_datetime(tmp['date'])\n    return pd.merge_asof(left.sort_values('date'),tmp.sort_values('date'),on='date',direction='backward').set_index('date')"
+          if old in s: s=s.replace(old,new)
+          p.write_text(s)
+          PY
+      - name: Run V82 phase1 deployment calibration
+        run: python v82_backtest_phase1.py
+      - name: Validate required core outputs
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          p='v82_results/phase1_summary.csv'
+          d=pd.read_csv(p)
+          req=['asset','strategy','total_cost','final_asset','total_return','xirr','max_drawdown','avg_stock_exposure','avg_parking_exposure']
+          miss=[c for c in req if c not in d.columns]
+          if miss: raise SystemExit(f'Missing columns: {miss}')
+          expected={'QQQ','VT','0050','VWRA','PPH','SOXX'}
+          if set(d.asset.unique())!=expected: raise SystemExit(f'Unexpected assets: {set(d.asset.unique())}')
+          bad=d[d.total_cost!=8_000_000]
+          if len(bad): raise SystemExit(f'Invalid total cost rows: {bad[["asset","strategy","total_cost"]].to_dict("records")}')
+          print(d[req].to_string(index=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v82-phase1-results
+          path: v82_results/
+          if-no-files-found: warn
