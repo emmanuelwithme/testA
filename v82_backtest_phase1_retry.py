@@ -70,5 +70,47 @@ def parking_tr_twd_robust(index):
 b.fred_dtb3=irx_proxy
 b.parking_tr_twd=parking_tr_twd_robust
 
+# Capture state counts without changing the underlying V82 Phase-1 strategy logic.
+_state_audit=[]
+_original_add_state=b.add_v82_phase1_state
+
+def add_v82_phase1_state_audited(asset,x,aux):
+    y=_original_add_state(asset,x,aux)
+    z=y.loc[(y.index>=b.START)&(y.index<=b.END)].copy()
+    risk=z.V82_RISK.fillna(False).astype(bool)
+    trim=z.V82_TRIM.fillna(False).astype(bool) & ~risk
+    trend=z.V82_TREND.fillna(False).astype(bool) & ~risk & ~trim
+    right=z.V82_RIGHT.fillna(False).astype(bool) & ~risk & ~trim & ~trend
+    base_ok=z.V82_BASE_OK.fillna(False).astype(bool) & ~risk & ~trim & ~trend & ~right
+    tier=z.V82_TIER.astype(str)
+    _state_audit.append({
+        'asset':asset,
+        'start_date':str(z.index.min().date()) if len(z) else '',
+        'end_date':str(z.index.max().date()) if len(z) else '',
+        'rows':int(len(z)),
+        'raw_runaway_up':int(z.RUNAWAY_UP.fillna(False).astype(bool).sum()),
+        'raw_runaway_down':int(z.RUNAWAY_DOWN.fillna(False).astype(bool).sum()),
+        'raw_v82_base_ok':int(z.V82_BASE_OK.fillna(False).astype(bool).sum()),
+        'raw_v82_right':int(z.V82_RIGHT.fillna(False).astype(bool).sum()),
+        'raw_v82_trend':int(z.V82_TREND.fillna(False).astype(bool).sum()),
+        'raw_v82_trim':int(z.V82_TRIM.fillna(False).astype(bool).sum()),
+        'raw_v82_risk':int(z.V82_RISK.fillna(False).astype(bool).sum()),
+        'exec_risk':int(risk.sum()),
+        'exec_trim':int(trim.sum()),
+        'exec_trend':int(trend.sum()),
+        'exec_right':int(right.sum()),
+        'exec_base':int((base_ok & tier.eq('BASE')).sum()),
+        'exec_left':int((base_ok & tier.eq('LEFT')).sum()),
+        'exec_deep':int((base_ok & tier.eq('DEEP')).sum()),
+        'exec_extreme':int((base_ok & tier.eq('EXTREME')).sum()),
+    })
+    return y
+
+b.add_v82_phase1_state=add_v82_phase1_state_audited
+
 if __name__=='__main__':
     b.main()
+    audit=pd.DataFrame(_state_audit)
+    audit.to_csv(b.OUT/'state_audit.csv',index=False)
+    print('\nV82 STATE AUDIT')
+    print(audit.to_string(index=False))
