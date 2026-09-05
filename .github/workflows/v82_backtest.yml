@@ -36,6 +36,7 @@ jobs:
       - name: Validate required core outputs
         run: |
           python - <<'PY'
+          import numpy as np
           import pandas as pd
           p='v82_results/phase1_summary.csv'
           d=pd.read_csv(p)
@@ -44,8 +45,24 @@ jobs:
           if miss: raise SystemExit(f'Missing columns: {miss}')
           expected={'QQQ','VT','0050','VWRA','PPH','SOXX'}
           if set(d.asset.unique())!=expected: raise SystemExit(f'Unexpected assets: {set(d.asset.unique())}')
+          expected_strategies={'BUY_HOLD','DCA','V82_SGOV'}
+          for a in expected:
+              s=set(d.loc[d.asset.eq(a),'strategy'])
+              if s!=expected_strategies: raise SystemExit(f'{a} strategy set invalid: {s}')
           bad=d[d.total_cost!=8_000_000]
           if len(bad): raise SystemExit(f'Invalid total cost rows: {bad[["asset","strategy","total_cost"]].to_dict("records")}')
+          numeric=['total_cost','final_asset','total_return','xirr','max_drawdown','avg_stock_exposure','avg_parking_exposure']
+          arr=d[numeric].apply(pd.to_numeric,errors='coerce')
+          invalid=~np.isfinite(arr.to_numpy())
+          if invalid.any():
+              rows=np.where(invalid.any(axis=1))[0]
+              raise SystemExit('INVALID V82 RUN: NaN/Inf in core outputs: '+str(d.iloc[rows][['asset','strategy']+numeric].to_dict('records')))
+          if ((d.avg_stock_exposure<0)|(d.avg_stock_exposure>1)|(d.avg_parking_exposure<0)|(d.avg_parking_exposure>1)).any():
+              raise SystemExit('INVALID exposure outside [0,1]')
+          if ((d.avg_stock_exposure+d.avg_parking_exposure-1).abs()>1e-6).any():
+              raise SystemExit('INVALID stock+parking exposure != 1')
+          if (d.final_asset<=0).any(): raise SystemExit('INVALID non-positive final asset')
+          print('STRICT V82 core-output validation passed')
           print(d[req].to_string(index=False))
           PY
       - uses: actions/upload-artifact@v4
