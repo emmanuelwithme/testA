@@ -17,6 +17,7 @@ import v80_macro as vm
 START = pd.Timestamp('2005-01-01')
 END = pd.Timestamp('2026-08-31')
 ANNUAL_CONTRIBUTION = 1_000_000.0
+MONTHLY_DCA = ANNUAL_CONTRIBUTION / 12.0
 OUT = Path('v82_extended_results')
 OUT.mkdir(exist_ok=True)
 
@@ -52,7 +53,7 @@ STRESS_WINDOWS = {
 # until that source is formally added.
 PROXY_STATUS = {
     'QQQ':  ('ACTUAL_COVERS_2005', '', False),
-    '0050': ('ACTUAL_COVERS_2005', '', False),
+    '0050': ('ACTUAL_VENDOR_HISTORY_REQUIRES_PRE_2014_VERIFICATION', 'TWSE/Yuanta authoritative historical source pending', None),
     'SOXX': ('ACTUAL_COVERS_2005', '', False),
     'VT':   ('N/A_PENDING_VERIFIED_ORIGINAL_TOTAL_RETURN_INDEX', 'FTSE Global All Cap Index', None),
     'VWRA': ('N/A_PENDING_VERIFIED_ORIGINAL_TOTAL_RETURN_INDEX', 'FTSE All-World Index', None),
@@ -171,6 +172,13 @@ def simulate_with_series(y, tr_twd, park_twd, params, strategy):
     yr_done = set()
     dca_seen = set()
 
+    first_effective_date = pd.Timestamp(dates.min())
+    first_effective_month = (first_effective_date.year, first_effective_date.month)
+    # If an ETF/data series begins clearly mid-month (e.g. an inception/listing date),
+    # do not fabricate a nominal day-1 DCA fill for that partial first month.
+    # A start in days 1-7 is treated as a normal first tradable day after weekend/holiday.
+    skip_partial_first_month = first_effective_date > START and first_effective_date.day > 7
+
     for dt in dates:
         if dt.year not in yr_done:
             amt = ANNUAL_CONTRIBUTION
@@ -190,8 +198,13 @@ def simulate_with_series(y, tr_twd, park_twd, params, strategy):
         elif strategy == 'DCA':
             key = (dt.year, dt.month)
             if key not in dca_seen:
-                target = min(1.0, cur + (ANNUAL_CONTRIBUTION/12.0)/total)
                 dca_seen.add(key)
+                if not (skip_partial_first_month and key == first_effective_month):
+                    # Formal DCA control: NT$1,000,000/year divided equally into 12
+                    # nominal day-1 installments. Because dates contains only actual
+                    # trading sessions, this executes on the first tradable date on/
+                    # after the first of each month; it never moves the order earlier.
+                    target = min(1.0, cur + MONTHLY_DCA/total)
         elif strategy == 'V82_FIXED_RUN8':
             row = sig.loc[dt]
             if pd.notna(row.get('V82_RISK', np.nan)):
@@ -331,56 +344,47 @@ def main():
             tr = tr * (fx / float(fx.iloc[0]))
         park = parking_long(x.index)
 
-        eligible = y.index[(y.index >= START) & (y.index <= END)]
-        if len(eligible) == 0:
+        effective = x.index[(x.index >= START) & (x.index <= END)]
+        if len(effective) == 0:
             continue
-        eff_start = pd.Timestamp(eligible.min())
-        years = sorted(set(int(z) for z in eligible.year))
-        proxy_status, proxy_name, backfilled = PROXY_STATUS[asset]
+        first_eff = pd.Timestamp(effective.min())
+        years = sorted(set(pd.DatetimeIndex(effective).year))
         boundary_rows.append({
-            'asset':asset,'ticker':ticker,'currency':ccy,
-            'requested_start':str(START.date()),'actual_first_date':str(actual_first.date()),
-            'effective_test_start':str(eff_start.date()),'effective_test_end':str(pd.Timestamp(eligible.max()).date()),
-            'effective_contribution_years':len(years),'expected_total_cost':len(years)*ANNUAL_CONTRIBUTION,
-            'actual_etf_only':True,'extended_proxy_status':proxy_status,
-            'proxy_name':proxy_name,'proxy_backfilled':backfilled,
+            'asset':asset,
+            'actual_first_date':actual_first.date(),
+            'actual_last_date':actual_last.date(),
+            'effective_start':first_eff.date(),
+            'effective_contribution_years':len(years),
+            'effective_total_external_cost':len(years)*ANNUAL_CONTRIBUTION,
+            'currency_model':'TWD native' if ccy=='TWD' else 'USD ETF total return x historical USD/TWD',
         })
 
         for strategy in ['BUY_HOLD','DCA','V82_FIXED_RUN8']:
-            params = FROZEN[asset] if strategy == 'V82_FIXED_RUN8' else dict(base=0,left=0,deep=0,extreme=0,right=0,trend=0)
-            sim = simulate_with_series(y, tr, park, params, strategy)
-            if sim is None:
+            res = simulate_with_series(y, tr, park, FROZEN[asset], strategy)
+            if res is None:
                 continue
-            sm, nav, unit, exposure = sim
-            sm.update(asset=asset, strategy=strategy, cls=cls,
-                      effective_start=str(nav.index.min().date()), effective_end=str(nav.index.max().date()))
-            if strategy == 'V82_FIXED_RUN8':
-                sm.update(FROZEN[asset])
-            summary_rows.append(sm)
-            stress.extend(stress_rows(asset, strategy, unit))
+            summary, nav, unit, exposure = res
+            summary_rows.append({'asset':asset,'strategy':strategy,**summary})
+            stress.extend(stress_rows(asset,strategy,unit))
 
-    summary = pd.DataFrame(summary_rows)
-    audit = pd.DataFrame(audit_rows)
-    boundary = pd.DataFrame(boundary_rows)
-    stress_df = pd.DataFrame(stress)
-    proxy_df = pd.DataFrame([
-        {'asset':a,'status':v[0],'original_index_name':v[1],'backfilled':v[2]}
+    pd.DataFrame(summary_rows).to_csv(OUT/'extended_actual_summary.csv', index=False)
+    pd.DataFrame(audit_rows).to_csv(OUT/'extended_actual_state_audit.csv', index=False)
+    pd.DataFrame(boundary_rows).to_csv(OUT/'extended_data_boundary.csv', index=False)
+    pd.DataFrame(stress).to_csv(OUT/'extended_stress_periods.csv', index=False)
+    pd.DataFrame([
+        {'asset':a,'proxy_status':v[0],'candidate_original_benchmark':v[1],'provider_backfilled':v[2]}
         for a,v in PROXY_STATUS.items()
-    ])
+    ]).to_csv(OUT/'extended_proxy_status.csv', index=False)
 
-    summary.to_csv(OUT/'extended_actual_summary.csv', index=False)
-    audit.to_csv(OUT/'extended_actual_state_audit.csv', index=False)
-    boundary.to_csv(OUT/'extended_data_boundary.csv', index=False)
-    stress_df.to_csv(OUT/'extended_stress_periods.csv', index=False)
-    proxy_df.to_csv(OUT/'extended_proxy_status.csv', index=False)
-
-    print('\nEXTENDED ACTUAL ETF SUMMARY')
-    cols=['asset','strategy','total_cost','final_asset','xirr','max_drawdown','twr_cagr','sortino','calmar','recovery_days','avg_stock_exposure','avg_parking_exposure']
-    print(summary[cols].to_string(index=False))
-    print('\nDATA BOUNDARY')
-    print(boundary.to_string(index=False))
-    print('\nPROXY STATUS')
-    print(proxy_df.to_string(index=False))
+    print('\n=== EXTENDED ACTUAL SUMMARY ===')
+    print(pd.DataFrame(summary_rows).to_string(index=False))
+    print('\n=== DATA BOUNDARIES ===')
+    print(pd.DataFrame(boundary_rows).to_string(index=False))
+    print('\n=== PROXY STATUS ===')
+    print(pd.DataFrame([
+        {'asset':a,'proxy_status':v[0],'candidate_original_benchmark':v[1],'provider_backfilled':v[2]}
+        for a,v in PROXY_STATUS.items()
+    ]).to_string(index=False))
 
 
 if __name__ == '__main__':
