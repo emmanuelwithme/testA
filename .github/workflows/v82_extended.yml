@@ -39,46 +39,8 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           p=Path('v82_backtest_extended.py'); s=p.read_text()
-          old="""def fred_dtb3_long():
-    url = ('https://fred.stlouisfed.org/graph/fredgraph.csv?'
-           'id=DTB3&cosd=2004-01-01&coed=2026-08-31')
-    rr = requests.get(url, timeout=60, headers={'User-Agent':'Mozilla/5.0'})
-    rr.raise_for_status()
-    z = pd.read_csv(StringIO(rr.text))
-    z.columns = ['date','rate']
-    z['date'] = pd.to_datetime(z.date, errors='coerce')
-    z['rate'] = pd.to_numeric(z.rate, errors='coerce')
-    return z.dropna().set_index('date').rate.sort_index()
-"""
-          new="""def fred_dtb3_long():
-    url = ('https://fred.stlouisfed.org/graph/fredgraph.csv?'
-           'id=DTB3&cosd=2004-01-01&coed=2026-08-31')
-    last = None
-    for wait in (0, 3, 8):
-        try:
-            if wait: time.sleep(wait)
-            rr = requests.get(url, timeout=120, headers={'User-Agent':'Mozilla/5.0'})
-            rr.raise_for_status()
-            z = pd.read_csv(StringIO(rr.text))
-            z.columns = ['date','rate']
-            z['date'] = pd.to_datetime(z.date, errors='coerce')
-            z['rate'] = pd.to_numeric(z.rate, errors='coerce')
-            out = z.dropna().set_index('date').rate.sort_index()
-            if len(out) < 1000:
-                raise RuntimeError(f'DTB3 short series {len(out)}')
-            print('DTB3 source=FRED rows=', len(out), 'start=', out.index.min(), 'end=', out.index.max())
-            return out
-        except Exception as exc:
-            last = exc
-            print('WARN FRED DTB3 retry:', exc)
-    # Point-in-time fallback: Yahoo ^IRX is the 13-week Treasury-bill yield proxy.
-    d = dl_long('^IRX', '2004-01-01', '2026-09-02')
-    out = pd.to_numeric(d.Close, errors='coerce').dropna().sort_index()
-    if len(out) < 1000:
-        raise RuntimeError(f'DTB3 FRED failed ({last}); ^IRX fallback too short ({len(out)})')
-    print('DTB3 source=YAHOO_^IRX_FALLBACK rows=', len(out), 'start=', out.index.min(), 'end=', out.index.max())
-    return out
-"""
+          old="def fred_dtb3_long():\n    url = ('https://fred.stlouisfed.org/graph/fredgraph.csv?'\n           'id=DTB3&cosd=2004-01-01&coed=2026-08-31')\n    rr = requests.get(url, timeout=60, headers={'User-Agent':'Mozilla/5.0'})\n    rr.raise_for_status()\n    z = pd.read_csv(StringIO(rr.text))\n    z.columns = ['date','rate']\n    z['date'] = pd.to_datetime(z.date, errors='coerce')\n    z['rate'] = pd.to_numeric(z.rate, errors='coerce')\n    return z.dropna().set_index('date').rate.sort_index()\n"
+          new="def fred_dtb3_long():\n    url = ('https://fred.stlouisfed.org/graph/fredgraph.csv?'\n           'id=DTB3&cosd=2004-01-01&coed=2026-08-31')\n    last = None\n    for wait in (0, 3, 8):\n        try:\n            if wait: time.sleep(wait)\n            rr = requests.get(url, timeout=120, headers={'User-Agent':'Mozilla/5.0'})\n            rr.raise_for_status()\n            z = pd.read_csv(StringIO(rr.text))\n            z.columns = ['date','rate']\n            z['date'] = pd.to_datetime(z.date, errors='coerce')\n            z['rate'] = pd.to_numeric(z.rate, errors='coerce')\n            out = z.dropna().set_index('date').rate.sort_index()\n            if len(out) < 1000: raise RuntimeError(f'DTB3 short series {len(out)}')\n            print('DTB3 source=FRED rows=', len(out), 'start=', out.index.min(), 'end=', out.index.max())\n            return out\n        except Exception as exc:\n            last = exc\n            print('WARN FRED DTB3 retry:', exc)\n    d = dl_long('^IRX', '2004-01-01', '2026-09-02')\n    out = pd.to_numeric(d.Close, errors='coerce').dropna().sort_index()\n    if len(out) < 1000: raise RuntimeError(f'DTB3 FRED failed ({last}); ^IRX fallback too short ({len(out)})')\n    print('DTB3 source=YAHOO_^IRX_FALLBACK rows=', len(out), 'start=', out.index.min(), 'end=', out.index.max())\n    return out\n"
           if old not in s:
               raise SystemExit('fred_dtb3_long patch target not found')
           p.write_text(s.replace(old,new))
@@ -91,12 +53,10 @@ jobs:
           import numpy as np
           import pandas as pd
           from pathlib import Path
-
           root=Path('v82_extended_results')
           req_files=['extended_actual_summary.csv','extended_actual_state_audit.csv','extended_data_boundary.csv','extended_stress_periods.csv','extended_proxy_status.csv']
           missing=[f for f in req_files if not (root/f).exists()]
           if missing: raise SystemExit(f'Missing extended outputs: {missing}')
-
           d=pd.read_csv(root/'extended_actual_summary.csv')
           expected={'QQQ','VT','0050','VWRA','PPH','SOXX'}
           if set(d.asset.unique())!=expected: raise SystemExit(f'Unexpected assets: {set(d.asset.unique())}')
@@ -111,14 +71,12 @@ jobs:
           if ((d.avg_stock_exposure<0)|(d.avg_stock_exposure>1)).any(): raise SystemExit('Invalid stock exposure')
           if ((d.avg_parking_exposure<0)|(d.avg_parking_exposure>1)).any(): raise SystemExit('Invalid parking exposure')
           if ((d.avg_stock_exposure+d.avg_parking_exposure-1).abs()>1e-6).any(): raise SystemExit('Exposure sum != 1')
-
           b=pd.read_csv(root/'extended_data_boundary.csv')
           if set(b.asset)!=expected: raise SystemExit('Boundary assets incomplete')
           p=pd.read_csv(root/'extended_proxy_status.csv')
           if set(p.asset)!=expected: raise SystemExit('Proxy status assets incomplete')
           s=pd.read_csv(root/'extended_stress_periods.csv')
           if len(s)==0: raise SystemExit('Stress-period output empty')
-
           print('V82 EXTENDED CORE VALIDATION PASSED')
           print(d[['asset','strategy','total_cost','final_asset','xirr','max_drawdown','twr_cagr','recovery_days','avg_stock_exposure','avg_parking_exposure']].to_string(index=False))
           print('\nBOUNDARIES')
