@@ -1,0 +1,72 @@
+name: V82 Extended 2005-2026 Robustness Backtest
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - 'v82_backtest_extended.py'
+      - '.github/workflows/v82_extended.yml'
+      - 'v82_backtest_phase1.py'
+      - 'v82_backtest_phase1_retry.py'
+      - 'v80_macro.py'
+      - 'investment_backtest.py'
+
+jobs:
+  extended:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy yfinance requests scikit-learn
+      - name: Run V82 extended 2005-2026 actual-ETF robustness test
+        run: python v82_backtest_extended.py
+      - name: Validate extended outputs
+        run: |
+          python - <<'PY'
+          import numpy as np
+          import pandas as pd
+          from pathlib import Path
+
+          root=Path('v82_extended_results')
+          req_files=['extended_actual_summary.csv','extended_actual_state_audit.csv','extended_data_boundary.csv','extended_stress_periods.csv','extended_proxy_status.csv']
+          missing=[f for f in req_files if not (root/f).exists()]
+          if missing: raise SystemExit(f'Missing extended outputs: {missing}')
+
+          d=pd.read_csv(root/'extended_actual_summary.csv')
+          expected={'QQQ','VT','0050','VWRA','PPH','SOXX'}
+          if set(d.asset.unique())!=expected: raise SystemExit(f'Unexpected assets: {set(d.asset.unique())}')
+          expected_strategies={'BUY_HOLD','DCA','V82_FIXED_RUN8'}
+          for a in expected:
+              got=set(d.loc[d.asset.eq(a),'strategy'])
+              if got!=expected_strategies: raise SystemExit(f'{a} strategies invalid: {got}')
+          numeric=['total_cost','final_asset','total_profit','total_return','xirr','max_drawdown','twr_cagr','avg_stock_exposure','avg_parking_exposure']
+          arr=d[numeric].apply(pd.to_numeric,errors='coerce')
+          if not np.isfinite(arr.to_numpy()).all(): raise SystemExit('NaN/Inf in extended core outputs')
+          if (d.total_cost<=0).any() or (d.final_asset<=0).any(): raise SystemExit('Non-positive cost/asset')
+          if ((d.avg_stock_exposure<0)|(d.avg_stock_exposure>1)).any(): raise SystemExit('Invalid stock exposure')
+          if ((d.avg_parking_exposure<0)|(d.avg_parking_exposure>1)).any(): raise SystemExit('Invalid parking exposure')
+          if ((d.avg_stock_exposure+d.avg_parking_exposure-1).abs()>1e-6).any(): raise SystemExit('Exposure sum != 1')
+
+          b=pd.read_csv(root/'extended_data_boundary.csv')
+          if set(b.asset)!=expected: raise SystemExit('Boundary assets incomplete')
+          p=pd.read_csv(root/'extended_proxy_status.csv')
+          if set(p.asset)!=expected: raise SystemExit('Proxy status assets incomplete')
+          s=pd.read_csv(root/'extended_stress_periods.csv')
+          if len(s)==0: raise SystemExit('Stress-period output empty')
+
+          print('V82 EXTENDED CORE VALIDATION PASSED')
+          print(d[['asset','strategy','total_cost','final_asset','xirr','max_drawdown','twr_cagr','recovery_days','avg_stock_exposure','avg_parking_exposure']].to_string(index=False))
+          print('\nBOUNDARIES')
+          print(b.to_string(index=False))
+          print('\nPROXY STATUS')
+          print(p.to_string(index=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v82-extended-results
+          path: v82_extended_results/
+          if-no-files-found: warn
