@@ -6,14 +6,16 @@ import yfinance as yf
 import v82_backtest_extended as e
 
 # Data-integrity wrapper for the 2005-2026 robustness replay.
-# 1) Corporate actions: request Yahoo auto-adjusted + repair=True OHLC directly,
-#    instead of reconstructing an Adj Close ratio ourselves. This is important
-#    for split/distribution histories such as 0050 where raw/adjusted fields can
-#    contain discontinuities that look like economic crashes.
+# 1) Corporate actions: request Yahoo auto-adjusted + repair=True OHLC directly.
 # 2) Total return: auto-adjusted Close already embeds distributions/splits, so
 #    do not add Dividends a second time.
 # 3) Stress windows: only mark a crisis window available when the instrument
-#    actually covers the whole requested window (with a small calendar tolerance).
+#    actually covers the whole requested window.
+# 4) 0050: Yahoo's long history contains a known discontinuity around
+#    2014-01-02 in this workflow. Until an authoritative TWSE/Yuanta pre-2014
+#    total-return source is integrated, pre-2014 0050 is treated as N/A rather
+#    than silently ratio-adjusted or winsorized. This is a fail-closed boundary,
+#    not a fabricated history correction.
 
 
 def dl_long_adjusted(ticker, start='2004-01-01', end='2026-09-02'):
@@ -34,9 +36,28 @@ def dl_long_adjusted(ticker, start='2004-01-01', end='2026-09-02'):
                 d['Dividends'] = 0.0
             d = d.dropna(subset=['Open','High','Low','Close'])
 
-            # Fail closed on impossible adjusted-price jumps. We do not silently
-            # delete or winsorize them because that would manufacture history.
             r = pd.to_numeric(d['Close'], errors='coerce').pct_change().dropna()
+            if ticker == '0050.TW' and len(r):
+                bad = r[(r < -0.60) | (r > 1.50)]
+                if len(bad):
+                    first_bad = pd.Timestamp(bad.index.min())
+                    # The recurring vendor break observed by the formal runs is
+                    # at 2014-01-02. Do not manufacture a pre-break adjustment.
+                    # Cut the unreliable history and make the missing period N/A.
+                    if first_bad <= pd.Timestamp('2014-01-03'):
+                        print(
+                            'WARN 0050 vendor history before 2014-01-02 excluded; '
+                            'pre-2014 Extended Actual ETF = N/A pending authoritative '
+                            'TWSE/Yuanta source. first_bad=', first_bad.date(),
+                            'return=', float(bad.loc[first_bad])
+                        )
+                        d = d.loc[d.index >= pd.Timestamp('2014-01-02')].copy()
+                        if len(d) < 20:
+                            raise RuntimeError('0050 post-2014 verified segment too short')
+                        r = pd.to_numeric(d['Close'], errors='coerce').pct_change().dropna()
+
+            # Fail closed on remaining impossible adjusted-price jumps. We do not
+            # silently delete or winsorize them because that would manufacture history.
             if len(r) and float(r.min()) < -0.60:
                 dt = r.idxmin()
                 raise RuntimeError(
@@ -52,6 +73,7 @@ def dl_long_adjusted(ticker, start='2004-01-01', end='2026-09-02'):
             return d
         except Exception as exc:
             last = exc
+            print(f'WARN dl_long_adjusted {ticker} attempt {i+1}: {exc}')
             time.sleep(3*(i+1))
     raise RuntimeError(f'{ticker} failed: {last}')
 
