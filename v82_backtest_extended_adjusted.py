@@ -6,10 +6,12 @@ import yfinance as yf
 import v82_backtest_extended as e
 
 # Data-integrity wrapper for the 2005-2026 robustness replay.
-# 1) Corporate actions: convert OHLC to Yahoo adjusted-price scale so stock splits
-#    and cash distributions do not appear as economic drawdowns.
-# 2) Total return: adjusted Close already embeds distributions/splits, so do not
-#    add Dividends a second time.
+# 1) Corporate actions: request Yahoo auto-adjusted + repair=True OHLC directly,
+#    instead of reconstructing an Adj Close ratio ourselves. This is important
+#    for split/distribution histories such as 0050 where raw/adjusted fields can
+#    contain discontinuities that look like economic crashes.
+# 2) Total return: auto-adjusted Close already embeds distributions/splits, so
+#    do not add Dividends a second time.
 # 3) Stress windows: only mark a crisis window available when the instrument
 #    actually covers the whole requested window (with a small calendar tolerance).
 
@@ -19,8 +21,8 @@ def dl_long_adjusted(ticker, start='2004-01-01', end='2026-09-02'):
     for i in range(5):
         try:
             d = yf.Ticker(ticker).history(
-                start=start, end=end, auto_adjust=False,
-                actions=True, repair=False, timeout=60
+                start=start, end=end, auto_adjust=True,
+                actions=True, repair=True, timeout=60
             )
             if d is None or len(d) < 20:
                 raise RuntimeError(f'short history {len(d) if d is not None else 0}')
@@ -30,17 +32,24 @@ def dl_long_adjusted(ticker, start='2004-01-01', end='2026-09-02'):
                 d[c] = pd.to_numeric(d[c], errors='coerce')
             if 'Dividends' not in d:
                 d['Dividends'] = 0.0
-            if 'Adj Close' in d.columns:
-                adj = pd.to_numeric(d['Adj Close'], errors='coerce')
-                raw = pd.to_numeric(d['Close'], errors='coerce')
-                ratio = (adj / raw.replace(0, np.nan)).replace([np.inf,-np.inf], np.nan)
-                ratio = ratio.ffill().bfill()
-                if ratio.isna().any():
-                    raise RuntimeError(f'{ticker} invalid Adj Close ratio')
-                for c in ['Open','High','Low','Close']:
-                    d[c] = pd.to_numeric(d[c], errors='coerce') * ratio
-                d['Adj Close'] = adj
-            return d.dropna(subset=['Open','High','Low','Close'])
+            d = d.dropna(subset=['Open','High','Low','Close'])
+
+            # Fail closed on impossible adjusted-price jumps. We do not silently
+            # delete or winsorize them because that would manufacture history.
+            r = pd.to_numeric(d['Close'], errors='coerce').pct_change().dropna()
+            if len(r) and float(r.min()) < -0.60:
+                dt = r.idxmin()
+                raise RuntimeError(
+                    f'{ticker} repaired adjusted Close still has implausible one-day '
+                    f'return {float(r.min()):.2%} on {pd.Timestamp(dt).date()}'
+                )
+            if len(r) and float(r.max()) > 1.50:
+                dt = r.idxmax()
+                raise RuntimeError(
+                    f'{ticker} repaired adjusted Close still has implausible one-day '
+                    f'return {float(r.max()):.2%} on {pd.Timestamp(dt).date()}'
+                )
+            return d
         except Exception as exc:
             last = exc
             time.sleep(3*(i+1))
@@ -53,15 +62,20 @@ def adjusted_total_return_index(d):
         raise RuntimeError('adjusted total-return series too short')
     r = c / c.shift(1)
     r.iloc[0] = 1.0
-    out = r.replace([np.inf,-np.inf], np.nan).fillna(1.0).cumprod()
-    one_day = out.pct_change().dropna()
-    if len(one_day) and float(one_day.min()) < -0.45:
+    one_day = r.dropna() - 1.0
+    if len(one_day) and float(one_day.min()) < -0.60:
         dt = one_day.idxmin()
         raise RuntimeError(
             f'corporate-action/data sanity failure: one-day adjusted total return '
             f'{float(one_day.min()):.2%} on {pd.Timestamp(dt).date()}'
         )
-    return out
+    if len(one_day) and float(one_day.max()) > 1.50:
+        dt = one_day.idxmax()
+        raise RuntimeError(
+            f'corporate-action/data sanity failure: one-day adjusted total return '
+            f'{float(one_day.max()):.2%} on {pd.Timestamp(dt).date()}'
+        )
+    return r.replace([np.inf,-np.inf], np.nan).fillna(1.0).cumprod()
 
 
 def stress_rows_full_coverage(asset, strategy, unit):
