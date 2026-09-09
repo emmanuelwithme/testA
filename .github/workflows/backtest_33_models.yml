@@ -5,6 +5,7 @@ on:
     branches: [ master ]
     paths:
       - 'backtest_33_models.py'
+      - 'annual_risk_report.py'
       - '.github/workflows/backtest_33_models.yml'
   workflow_dispatch:
 
@@ -28,6 +29,9 @@ jobs:
 
       - name: Run 33-model suite
         run: python backtest_33_models.py
+
+      - name: Run annual risk and withdrawal-risk tables
+        run: python annual_risk_report.py
 
       - name: Upload results
         if: always()
