@@ -6,6 +6,7 @@ on:
     paths:
       - 'v82_backtest_extended.py'
       - 'v82_backtest_extended_adjusted.py'
+      - 'v82_backtest_extended_official_parking.py'
       - '.github/workflows/v82_extended.yml'
       - 'v82_backtest_phase1.py'
       - 'v82_backtest_phase1_retry.py'
@@ -35,90 +36,8 @@ jobs:
               raise SystemExit('asof_cols compatibility patch target not found')
           p.write_text(s)
           PY
-      - name: Patch resilient official extended T-bill source
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('v82_backtest_extended.py'); s=p.read_text()
-          old="def fred_dtb3_long():\n    url = ('https://fred.stlouisfed.org/graph/fredgraph.csv?'\n           'id=DTB3&cosd=2004-01-01&coed=2026-08-31')\n    rr = requests.get(url, timeout=60, headers={'User-Agent':'Mozilla/5.0'})\n    rr.raise_for_status()\n    z = pd.read_csv(StringIO(rr.text))\n    z.columns = ['date','rate']\n    z['date'] = pd.to_datetime(z.date, errors='coerce')\n    z['rate'] = pd.to_numeric(z.rate, errors='coerce')\n    return z.dropna().set_index('date').rate.sort_index()\n"
-          new="""def fred_dtb3_long():
-    # Primary: FRED DTB3. Fallback: official U.S. Treasury daily 3-month
-    # constant-maturity yield XML. Yahoo ^IRX is deliberately excluded because
-    # its repaired history produced an impossible 2020 one-day jump.
-    url = ('https://fred.stlouisfed.org/graph/fredgraph.csv?'
-           'id=DTB3&cosd=2004-01-01&coed=2026-08-31')
-    last = None
-    for wait in (0, 2, 5):
-        try:
-            if wait: time.sleep(wait)
-            rr = requests.get(url, timeout=45, headers={'User-Agent':'Mozilla/5.0'})
-            rr.raise_for_status()
-            z = pd.read_csv(StringIO(rr.text))
-            z.columns = ['date','rate']
-            z['date'] = pd.to_datetime(z.date, errors='coerce')
-            z['rate'] = pd.to_numeric(z.rate, errors='coerce')
-            out = z.dropna().set_index('date').rate.sort_index()
-            if len(out) < 1000:
-                raise RuntimeError(f'DTB3 short series {len(out)}')
-            print('PARKING RATE source=FRED_DTB3 rows=', len(out), 'start=', out.index.min(), 'end=', out.index.max())
-            return out
-        except Exception as exc:
-            last = exc
-            print('WARN FRED DTB3 retry:', exc)
-
-    print('WARN FRED DTB3 unavailable; using official U.S. Treasury 3M CMT fallback:', last)
-    import xml.etree.ElementTree as ET
-    rows = []
-    ns = {
-        'atom': 'http://www.w3.org/2005/Atom',
-        'm': 'http://schemas.microsoft.com/ado/2007/08/dataservices/metadata',
-        'd': 'http://schemas.microsoft.com/ado/2007/08/dataservices',
-    }
-    for year in range(2004, 2027):
-        yurl = ('https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?'
-                'data=daily_treasury_yield_curve&field_tdr_date_value=' + str(year))
-        ylast = None
-        for wait in (0, 2, 5):
-            try:
-                if wait: time.sleep(wait)
-                rr = requests.get(yurl, timeout=45, headers={'User-Agent':'Mozilla/5.0'})
-                rr.raise_for_status()
-                root = ET.fromstring(rr.content)
-                n_before = len(rows)
-                for entry in root.findall('atom:entry', ns):
-                    props = entry.find('atom:content/m:properties', ns)
-                    if props is None:
-                        continue
-                    dnode = props.find('d:NEW_DATE', ns)
-                    vnode = props.find('d:BC_3MONTH', ns)
-                    if dnode is None or vnode is None or not dnode.text or not vnode.text:
-                        continue
-                    dt = pd.to_datetime(dnode.text, errors='coerce')
-                    val = pd.to_numeric(vnode.text, errors='coerce')
-                    if pd.notna(dt) and pd.notna(val):
-                        rows.append((dt, float(val)))
-                if len(rows) == n_before:
-                    raise RuntimeError(f'no 3M observations parsed for {year}')
-                break
-            except Exception as exc:
-                ylast = exc
-                print(f'WARN Treasury 3M {year} retry:', exc)
-        else:
-            raise RuntimeError(f'Official Treasury 3M fallback failed for {year}: {ylast}')
-    out = pd.Series({pd.Timestamp(d): v for d, v in rows}, dtype=float).sort_index()
-    out = out[(out.index >= pd.Timestamp('2004-01-01')) & (out.index <= pd.Timestamp('2026-08-31'))]
-    out = out[~out.index.duplicated(keep='last')]
-    if len(out) < 1000 or not np.isfinite(out).all() or (out < 0).any() or (out > 30).any():
-        raise RuntimeError(f'Official Treasury 3M fallback sanity failure rows={len(out)}')
-    print('PARKING RATE source=US_TREASURY_3M_CMT rows=', len(out), 'start=', out.index.min(), 'end=', out.index.max())
-    return out
-"""
-          if old not in s:
-              raise SystemExit('fred_dtb3_long patch target not found')
-          p.write_text(s.replace(old,new))
-          PY
       - name: Run V82 extended 2005-2026 corporate-action-safe robustness test
-        run: python v82_backtest_extended_adjusted.py
+        run: python v82_backtest_extended_official_parking.py
       - name: Validate extended outputs
         run: |
           python - <<'PY'
