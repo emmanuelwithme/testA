@@ -19,8 +19,10 @@ import v82_backtest_extended as e
 #    2014-01-02 in this workflow. Until an authoritative TWSE/Yuanta pre-2014
 #    total-return source is integrated, pre-2014 0050 is treated as N/A rather
 #    than silently ratio-adjusted or winsorized.
-# 5) Extended USD/TWD conversion uses Federal Reserve H.10 / FRED DEXTAUS,
-#    not Yahoo TWD=X, whose vendor history showed an impossible 2011 jump.
+# 5) Extended USD/TWD conversion uses official Federal Reserve H.10 data.
+#    Primary: FRED DEXTAUS CSV. Fallback: Federal Reserve Board H.10 historical
+#    Taiwan-dollar table. Yahoo TWD=X is not used because its vendor history
+#    showed an impossible 2011 jump.
 # 6) Any fatal exception is persisted to the artifact output directory.
 
 
@@ -79,8 +81,69 @@ def dl_long_adjusted(ticker, start='2004-01-01', end='2026-09-02'):
     raise RuntimeError(f'{ticker} failed: {last}')
 
 
+def _align_official_fx(s, idx, source_name):
+    s = pd.to_numeric(s, errors='coerce').dropna().astype(float)
+    s.index = pd.to_datetime(s.index, errors='coerce')
+    s = s[~s.index.isna()]
+    s = s[~s.index.duplicated(keep='last')].sort_index()
+    if s.empty:
+        raise RuntimeError(f'{source_name} returned no valid observations')
+    combined = s.reindex(s.index.union(idx)).sort_index().ffill().reindex(idx)
+    if combined.isna().any():
+        first_missing = combined[combined.isna()].index.min()
+        raise RuntimeError(f'{source_name} cannot cover required date {first_missing}')
+    if not np.isfinite(combined).all() or (combined <= 0).any():
+        raise RuntimeError(f'{source_name} contains invalid/non-positive values')
+    fxret = combined.pct_change().dropna()
+    bad = fxret[fxret.abs() > 0.20]
+    if len(bad):
+        dt = pd.Timestamp(bad.index[0])
+        raise RuntimeError(
+            f'{source_name} sanity failure: {float(bad.iloc[0]):.2%} daily move on {dt.date()}'
+        )
+    print(
+        f'USD/TWD source={source_name} rows={len(s)} '
+        f'start={s.index.min().date()} end={s.index.max().date()}'
+    )
+    return combined.astype(float)
+
+
+def _fed_board_h10_taiwan(idx):
+    """Official Federal Reserve Board H.10 historical Taiwan-dollar table."""
+    url = 'https://www.federalreserve.gov/releases/h10/hist/dat00_ta.htm'
+    last = None
+    for i in range(3):
+        try:
+            rr = requests.get(url, timeout=90, headers={'User-Agent':'Mozilla/5.0'})
+            rr.raise_for_status()
+            tables = pd.read_html(StringIO(rr.text))
+            chosen = None
+            for t in tables:
+                if t.shape[1] < 2:
+                    continue
+                cols = [str(c).strip().lower() for c in t.columns]
+                if any('date' in c for c in cols) and any('rate' in c for c in cols):
+                    chosen = t.iloc[:, :2].copy()
+                    break
+            if chosen is None:
+                raise RuntimeError('Taiwan historical Date/Rate table not found')
+            chosen.columns = ['date','rate']
+            chosen['date'] = pd.to_datetime(chosen['date'], errors='coerce', dayfirst=True)
+            chosen['rate'] = pd.to_numeric(
+                chosen['rate'].astype(str).str.replace('ND', '', regex=False),
+                errors='coerce'
+            )
+            s = chosen.dropna().set_index('date').rate.sort_index()
+            return _align_official_fx(s, idx, 'FED_H10_BOARD_TAIWAN')
+        except Exception as exc:
+            last = exc
+            print(f'WARN Fed Board H10 Taiwan attempt {i+1}: {exc}')
+            time.sleep(3*(i+1))
+    raise RuntimeError(f'Fed Board H10 Taiwan failed: {last}')
+
+
 def fred_dextaus_long(index):
-    """Point-in-Time USD/TWD spot series from Federal Reserve H.10 via FRED.
+    """Point-in-Time USD/TWD from official Federal Reserve H.10 sources.
 
     DEXTAUS is Taiwan dollars per one U.S. dollar. Calendar/trading-day gaps are
     filled only forward from the latest already-published observation; no
@@ -90,38 +153,23 @@ def fred_dextaus_long(index):
     url = ('https://fred.stlouisfed.org/graph/fredgraph.csv?'
            'id=DEXTAUS&cosd=2004-01-01&coed=2026-08-31')
     last = None
-    for i in range(5):
+    for i in range(3):
         try:
-            rr = requests.get(url, timeout=120, headers={'User-Agent':'Mozilla/5.0'})
+            rr = requests.get(url, timeout=90, headers={'User-Agent':'Mozilla/5.0'})
             rr.raise_for_status()
             z = pd.read_csv(StringIO(rr.text))
             z.columns = ['date','rate']
             z['date'] = pd.to_datetime(z['date'], errors='coerce')
             z['rate'] = pd.to_numeric(z['rate'], errors='coerce')
             s = z.dropna().set_index('date').rate.sort_index()
-            if s.empty:
-                raise RuntimeError('FRED DEXTAUS returned no valid observations')
-            combined = s.reindex(s.index.union(idx)).sort_index().ffill().reindex(idx)
-            if combined.isna().any():
-                first_missing = combined[combined.isna()].index.min()
-                raise RuntimeError(f'DEXTAUS cannot cover required date {first_missing}')
-            if not np.isfinite(combined).all() or (combined <= 0).any():
-                raise RuntimeError('DEXTAUS contains invalid/non-positive values')
-            # Sanity only; do not alter data. A >20% daily FX move is treated as
-            # source corruption and fails closed for investigation.
-            fxret = combined.pct_change().dropna()
-            bad = fxret[fxret.abs() > 0.20]
-            if len(bad):
-                dt = pd.Timestamp(bad.index[0])
-                raise RuntimeError(
-                    f'DEXTAUS sanity failure: {float(bad.iloc[0]):.2%} daily move on {dt.date()}'
-                )
-            return combined.astype(float)
+            return _align_official_fx(s, idx, 'FRED_DEXTAUS')
         except Exception as exc:
             last = exc
-            print(f'WARN fred_dextaus_long attempt {i+1}: {exc}')
+            print(f'WARN FRED DEXTAUS attempt {i+1}: {exc}')
             time.sleep(3*(i+1))
-    raise RuntimeError(f'FRED DEXTAUS failed: {last}')
+
+    print(f'WARN FRED DEXTAUS unavailable; trying official Fed Board H10 fallback: {last}')
+    return _fed_board_h10_taiwan(idx)
 
 
 def adjusted_total_return_index(d):
