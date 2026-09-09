@@ -6,6 +6,7 @@ on:
     paths:
       - 'v82_backtest_phase1.py'
       - 'v82_backtest_phase1_retry.py'
+      - 'v82_backtest_phase1_formal.py'
       - '.github/workflows/v82_backtest.yml'
       - 'investment_backtest.py'
       - 'v80_backtest.py'
@@ -31,8 +32,8 @@ jobs:
           if old in s: s=s.replace(old,new)
           p.write_text(s)
           PY
-      - name: Run V82 phase1 deployment calibration
-        run: python v82_backtest_phase1_retry.py
+      - name: Run V82 formal deployment backtest with calendar DCA control
+        run: python v82_backtest_phase1_formal.py
       - name: Validate required core outputs
         run: |
           python - <<'PY'
