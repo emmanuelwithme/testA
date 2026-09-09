@@ -1,4 +1,6 @@
 import time
+import traceback
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -16,6 +18,9 @@ import v82_backtest_extended as e
 #    total-return source is integrated, pre-2014 0050 is treated as N/A rather
 #    than silently ratio-adjusted or winsorized. This is a fail-closed boundary,
 #    not a fabricated history correction.
+# 5) Any fatal exception is persisted to the artifact output directory so the
+#    recurring automation can diagnose the exact traceback even when the public
+#    Actions logs endpoint does not expose text through the connector.
 
 
 def dl_long_adjusted(ticker, start='2004-01-01', end='2026-09-02'):
@@ -41,9 +46,6 @@ def dl_long_adjusted(ticker, start='2004-01-01', end='2026-09-02'):
                 bad = r[(r < -0.60) | (r > 1.50)]
                 if len(bad):
                     first_bad = pd.Timestamp(bad.index.min())
-                    # The recurring vendor break observed by the formal runs is
-                    # at 2014-01-02. Do not manufacture a pre-break adjustment.
-                    # Cut the unreliable history and make the missing period N/A.
                     if first_bad <= pd.Timestamp('2014-01-03'):
                         print(
                             'WARN 0050 vendor history before 2014-01-02 excluded; '
@@ -56,8 +58,6 @@ def dl_long_adjusted(ticker, start='2004-01-01', end='2026-09-02'):
                             raise RuntimeError('0050 post-2014 verified segment too short')
                         r = pd.to_numeric(d['Close'], errors='coerce').pct_change().dropna()
 
-            # Fail closed on remaining impossible adjusted-price jumps. We do not
-            # silently delete or winsorize them because that would manufacture history.
             if len(r) and float(r.min()) < -0.60:
                 dt = r.idxmin()
                 raise RuntimeError(
@@ -131,4 +131,12 @@ e.b.total_return_index = adjusted_total_return_index
 e.stress_rows = stress_rows_full_coverage
 
 if __name__ == '__main__':
-    e.main()
+    try:
+        e.main()
+    except Exception:
+        tb = traceback.format_exc()
+        print(tb)
+        out = Path('v82_extended_results')
+        out.mkdir(exist_ok=True)
+        (out / 'extended_failure.txt').write_text(tb, encoding='utf-8')
+        raise
