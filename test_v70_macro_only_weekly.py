@@ -3,8 +3,27 @@ import pytest
 
 from v70_macro_only_weekly import (
     GROUP_WEIGHTS, UnitQAError, apply_intrawweek_hard_gate,
-    apply_lower_layer_demands, bucket_caps, gamma_risk, macro_zone
+    apply_lower_layer_demands, bucket_caps, gamma_risk, macro_zone,
+    macro_score
 )
+
+
+def safe_values():
+    return {
+        'VIX':14.0, 'MOVE':80.0, 'HY_OAS':300.0,
+        'CORE_CPI_YOY':0.0200, '5Y_BREAKEVEN':0.0200,
+        '5Y_BREAKEVEN_DELTA_1M':0.0,
+        'REAL_10Y':0.0100, '10Y_MINUS_2Y':0.0050,
+        'NET_LIQUIDITY_DELTA_13W':300.0, 'DXY':98.0, 'WTI':75.0,
+        'PMI_MANUFACTURING':55.0, 'PMI_SERVICES':55.0, 'LEI_YOY':0.0200,
+    }
+
+
+def safe_recession():
+    return {
+        'SAHM_RULE':0.0, 'U3_UNEMPLOYMENT':0.0350,
+        'NFP_3M_AVG':200.0, 'LEI_YOY':0.0200, 'LEI_NEG_3M':False,
+    }
 
 
 def test_exact_weights_sum_to_one():
@@ -28,6 +47,35 @@ def test_bucket_caps():
     assert bucket_caps(60) == {'equity_max':0.60,'bond_max':0.30,'cash_min':0.10}
     assert bucket_caps(50) == {'equity_max':0.40,'bond_max':0.40,'cash_min':0.20}
     assert bucket_caps(30) == {'equity_max':0.00,'bond_max':0.20,'cash_min':0.80}
+
+
+def test_fully_safe_macro_is_attack():
+    r = macro_score(safe_values(), safe_recession())
+    assert math.isclose(r['mSafe_raw'], 100.0)
+    assert math.isclose(r['mSafe_final'], 100.0)
+    assert r['zone'] == 'ATTACK'
+
+
+def test_panic_cap_60():
+    v=safe_values(); v['VIX']=35.0
+    r=macro_score(v,safe_recession())
+    assert r['caps']['panic'] == 60.0
+    assert r['mSafe_final'] <= 60.0
+
+
+def test_two_crisis_triggers_cap_55():
+    v=safe_values(); v['HY_OAS']=600.0; v['5Y_BREAKEVEN']=0.0260; v['5Y_BREAKEVEN_DELTA_1M']=0.0025
+    r=macro_score(v,safe_recession())
+    assert r['caps']['crisis_trigger_count'] == 2.0
+    assert r['caps']['crisis'] == 55.0
+    assert r['mSafe_final'] <= 55.0
+
+
+def test_recession_cap_45_priority():
+    rec=safe_recession(); rec['SAHM_RULE']=0.5
+    r=macro_score(safe_values(),rec)
+    assert r['caps']['recession'] == 45.0
+    assert r['mSafe_final'] == 45.0
 
 
 def test_unused_equity_does_not_cross_to_bond():
