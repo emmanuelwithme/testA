@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import StringIO
 from pathlib import Path
 import json
@@ -21,7 +22,7 @@ FRED = {
 
 def fred_csv(series_id: str) -> pd.Series:
     url = f'https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}'
-    r = requests.get(url, timeout=60, headers={'User-Agent': 'LivingWaterAI research backtest'})
+    r = requests.get(url, timeout=20, headers={'User-Agent': 'LivingWaterAI research backtest'})
     r.raise_for_status()
     df = pd.read_csv(StringIO(r.text))
     if len(df.columns) < 2:
@@ -33,31 +34,36 @@ def fred_csv(series_id: str) -> pd.Series:
     s = s[~s.index.isna()].sort_index()
     if s.index.duplicated().any():
         raise RuntimeError(f'{series_id}: duplicate dates')
+    if len(s) == 0:
+        raise RuntimeError(f'{series_id}: empty series')
     return s
 
 
 def main():
     rows = []
     cached = {}
-    for logical, (sid, conversion) in FRED.items():
-        try:
-            s = fred_csv(sid)
-            cached[logical] = s
-            rows.append({
-                'logical_input': logical,
-                'series_id': sid,
-                'status': 'RAW_SOURCE_OK',
-                'first_observation': str(s.index.min().date()) if len(s) else None,
-                'last_observation': str(s.index.max().date()) if len(s) else None,
-                'n': int(len(s)),
-                'conversion': conversion,
-                'formal_pit_ready': False,
-                'pit_note': 'Raw historical source exists; formal use still requires availability-date/release-lag mapping or vintage validation where applicable.',
-            })
-        except Exception as e:
-            rows.append({'logical_input': logical, 'series_id': sid, 'status': 'SOURCE_FAIL', 'error': repr(e), 'formal_pit_ready': False})
+    with ThreadPoolExecutor(max_workers=len(FRED)) as ex:
+        futs = {ex.submit(fred_csv, sid):(logical,sid,conversion) for logical,(sid,conversion) in FRED.items()}
+        for fut in as_completed(futs):
+            logical,sid,conversion = futs[fut]
+            try:
+                s = fut.result()
+                cached[logical] = s
+                rows.append({
+                    'logical_input': logical,
+                    'series_id': sid,
+                    'status': 'RAW_SOURCE_OK',
+                    'first_observation': str(s.index.min().date()),
+                    'last_observation': str(s.index.max().date()),
+                    'n': int(len(s)),
+                    'conversion': conversion,
+                    'formal_pit_ready': False,
+                    'pit_note': 'Raw historical source exists; formal use still requires availability-date/release-lag mapping or vintage validation where applicable.',
+                })
+            except Exception as e:
+                rows.append({'logical_input': logical, 'series_id': sid, 'status': 'SOURCE_FAIL', 'error': repr(e), 'formal_pit_ready': False})
+    rows.sort(key=lambda z: z['logical_input'])
 
-    # Structural feasibility of Net Liquidity. Do not silently treat missing RRP as zero.
     nl = {'status': 'NOT_EVALUATED'}
     if all(k in cached for k in ('WALCL','RRP','TGA')):
         starts = {k: str(cached[k].index.min().date()) for k in ('WALCL','RRP','TGA')}
