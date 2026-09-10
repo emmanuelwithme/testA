@@ -60,8 +60,26 @@ def main():
                     'formal_pit_ready': False,
                     'pit_note': 'Raw historical source exists; formal use still requires availability-date/release-lag mapping or vintage validation where applicable.',
                 })
+            except requests.exceptions.ReadTimeout as e:
+                rows.append({
+                    'logical_input': logical, 'series_id': sid,
+                    'status': 'RUNNER_NETWORK_TIMEOUT', 'error': repr(e),
+                    'source_unavailable': False, 'formal_pit_ready': False,
+                    'note': 'Transport failure is not evidence that the official series is unavailable.'
+                })
+            except requests.exceptions.RequestException as e:
+                rows.append({
+                    'logical_input': logical, 'series_id': sid,
+                    'status': 'RUNNER_NETWORK_ERROR', 'error': repr(e),
+                    'source_unavailable': False, 'formal_pit_ready': False,
+                    'note': 'Transport failure is not evidence that the official series is unavailable.'
+                })
             except Exception as e:
-                rows.append({'logical_input': logical, 'series_id': sid, 'status': 'SOURCE_FAIL', 'error': repr(e), 'formal_pit_ready': False})
+                rows.append({
+                    'logical_input': logical, 'series_id': sid,
+                    'status': 'SOURCE_PARSE_OR_QA_FAIL', 'error': repr(e),
+                    'formal_pit_ready': False
+                })
     rows.sort(key=lambda z: z['logical_input'])
 
     nl = {'status': 'NOT_EVALUATED'}
@@ -84,7 +102,7 @@ def main():
         'candidate': 'V70.2 Macro-only Weekly Candidate',
         'source_rows': rows,
         'net_liquidity_raw_feasibility': nl,
-        'official_sources_resolved': ['T5YIE','DFII10','WALCL','RRPONTSYD','WTREGEN','SAHMREALTIME'],
+        'official_series_ids': ['T5YIE','DFII10','WALCL','RRPONTSYD','WTREGEN','SAHMREALTIME'],
         'still_requires_separate_licensed_or_archival_validation': ['PMI_MANUFACTURING','PMI_SERVICES','LEI_YOY'],
         'formal_backtest_ready': False,
     }
