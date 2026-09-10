@@ -1,0 +1,21 @@
+name: V70.2 Macro-only Weekly Tests
+
+on:
+  push:
+    paths:
+      - 'v70_macro_only_weekly.py'
+      - 'test_v70_macro_only_weekly.py'
+      - '.github/workflows/v70_macro_only_weekly_tests.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pytest
+      - name: Run allocator unit tests
+        run: pytest -q test_v70_macro_only_weekly.py
