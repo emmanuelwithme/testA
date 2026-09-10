@@ -6,6 +6,9 @@ OUT.mkdir(exist_ok=True)
 
 # Exact source-defined inputs that require historical Point-in-Time reconstruction
 # before the V70.2 weekly top-level allocator can produce a FORMAL backtest.
+# Important: m06 Fed cut expectation is visible in the UI but is NOT a member of
+# the seven mSafe groups in the source calcTotal() implementation, so it is not a
+# hard blocker for reproducing mSafe itself.
 requirements = [
     ('VIX', 'market_daily', True, 'V70.2 panic/volatility'),
     ('MOVE', 'market_daily', True, 'V70.2 panic/volatility'),
@@ -24,7 +27,6 @@ requirements = [
     ('SAHM_RULE', 'fred_monthly_pit', True, 'V70.2 recession'),
     ('U3_UNEMPLOYMENT', 'macro_release_pit', True, 'V70.2 recession'),
     ('NFP_3M_AVG', 'macro_release_pit', True, 'V70.2 recession'),
-    ('FED_CUT_EXPECTATION', 'historical_futures_expectation_pit', True, 'visible V70.2 input'),
     ('QQQ_TTM_PE', 'historical_valuation_pit', True, 'V70.2 valuation'),
     ('SPY_TTM_PE', 'historical_valuation_pit', True, 'V70.2 valuation'),
     ('VT_TTM_PE', 'historical_valuation_pit', True, 'V70.2 valuation'),
@@ -51,7 +53,6 @@ repo_plumbing = {
     'PMI_SERVICES': False,
     'LEI_YOY': False,
     'SAHM_RULE': False,
-    'FED_CUT_EXPECTATION': False,
     'QQQ_TTM_PE': False,
     'SPY_TTM_PE': False,
     'VT_TTM_PE': False,
@@ -79,6 +80,7 @@ status={
     'missing_repo_plumbing': missing,
     'required_input_count': len(rows),
     'existing_plumbing_count': sum(r['repo_plumbing_found'] for r in rows),
+    'ui_only_not_msafe_blocker': ['FED_CUT_EXPECTATION_m06'],
     'weekly_anchor': 'SENSITIVITY_REQUIRED_NOT_SILENTLY_FIXED',
     'v82_changed': False,
     'bond_v75_changed': False,
