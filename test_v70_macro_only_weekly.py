@@ -85,6 +85,23 @@ def test_unused_equity_does_not_cross_to_bond():
     assert math.isclose(r['cash_actual'], 0.30)
 
 
+def test_unused_bond_does_not_cross_to_equity():
+    r = apply_lower_layer_demands(60, 0.90, 0.10)
+    assert math.isclose(r['equity_actual'], 0.60)
+    assert math.isclose(r['bond_actual'], 0.10)
+    assert math.isclose(r['cash_actual'], 0.30)
+
+
+def test_independent_buckets_return_unused_cap_to_sgov():
+    # In STEADY, V70.2 assigns separate maxima: 60% stock, 30% bond, 10% minimum SGOV/cash.
+    # Each lower engine owns only its assigned bucket. Unused budget returns to SGOV,
+    # and is never transferred to the other risk bucket.
+    r = apply_lower_layer_demands(60, 0.25, 0.12)
+    assert math.isclose(r['equity_actual'], 0.25)
+    assert math.isclose(r['bond_actual'], 0.12)
+    assert math.isclose(r['cash_actual'], 0.63)
+
+
 def test_parking_zone_allows_bond_only_to_20pct():
     r = apply_lower_layer_demands(30, 0.50, 0.50)
     assert math.isclose(r['equity_actual'], 0.0)
