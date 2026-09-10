@@ -19,6 +19,7 @@ jobs:
       - name: Run official-source QA
         run: python v70_macro_only_source_qa.py
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: v70-macro-source-qa
           path: v70_macro_source_qa_output/
