@@ -32,22 +32,22 @@ def test_bucket_caps():
 
 def test_unused_equity_does_not_cross_to_bond():
     r = apply_lower_layer_demands(60, 0.40, 0.50)
-    assert r['equity_actual'] == 0.40
-    assert r['bond_actual'] == 0.30
+    assert math.isclose(r['equity_actual'], 0.40)
+    assert math.isclose(r['bond_actual'], 0.30)
     assert math.isclose(r['cash_actual'], 0.30)
 
 
 def test_parking_zone_allows_bond_only_to_20pct():
     r = apply_lower_layer_demands(30, 0.50, 0.50)
-    assert r['equity_actual'] == 0.0
-    assert r['bond_actual'] == 0.20
-    assert r['cash_actual'] == 0.80
+    assert math.isclose(r['equity_actual'], 0.0)
+    assert math.isclose(r['bond_actual'], 0.20)
+    assert math.isclose(r['cash_actual'], 0.80)
 
 
 def test_intrawweek_gate_can_reduce_not_raise():
     r = apply_lower_layer_demands(60, 0.50, 0.20)
     r2 = apply_intrawweek_hard_gate(r, equity_target_after_gate=0.30)
-    assert r2['equity_actual'] == 0.30
-    assert r2['cash_actual'] == 0.50
+    assert math.isclose(r2['equity_actual'], 0.30)
+    assert math.isclose(r2['cash_actual'], 0.50)
     with pytest.raises(UnitQAError):
         apply_intrawweek_hard_gate(r, equity_target_after_gate=0.55)
