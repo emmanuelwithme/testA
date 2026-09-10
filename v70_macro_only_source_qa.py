@@ -64,6 +64,23 @@ def fred_csv(series_id: str, attempts: int = 3) -> pd.Series:
     raise last_exc if last_exc else RuntimeError(f'{series_id}: unknown fetch failure')
 
 
+def _select_tga_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Select the Treasury cash account from DTS Operating Cash Balance rows.
+
+    The DTS table labels the Treasury cash account as "Federal Reserve Account"
+    for historical observations; some downstream descriptions refer to the same
+    Treasury cash account as the Treasury General Account.  Accept either label,
+    but do not use Total Operating Balance because it can include other cash
+    components and would silently change the V70.2 TGA definition.
+    """
+    acct = df['account_type'].astype(str).str.strip().str.lower()
+    mask = (
+        acct.str.contains('treasury general account', na=False)
+        | acct.str.fullmatch(r'federal reserve account', na=False)
+    )
+    return df.loc[mask].copy()
+
+
 def treasury_tga(attempts: int = 3) -> pd.Series:
     """Official U.S. Treasury Fiscal Data fallback for TGA/operating cash.
 
@@ -92,11 +109,10 @@ def treasury_tga(attempts: int = 3) -> pd.Series:
             required = {'record_date', 'account_type', 'close_today_bal'}
             if not required.issubset(df.columns):
                 raise RuntimeError(f'Treasury DTS: missing fields {required - set(df.columns)}')
-            acct = df['account_type'].astype(str).str.lower()
-            mask = acct.str.contains('treasury general account', na=False)
-            if not mask.any():
-                raise RuntimeError('Treasury DTS: Treasury General Account rows not found')
-            x = df.loc[mask].copy()
+            x = _select_tga_rows(df)
+            if x.empty:
+                labels = sorted(df['account_type'].dropna().astype(str).unique().tolist())[:20]
+                raise RuntimeError(f'Treasury DTS: TGA/Federal Reserve Account rows not found; observed account_type={labels}')
             dt = pd.to_datetime(x['record_date'], errors='coerce')
             val = pd.to_numeric(x['close_today_bal'], errors='coerce')
             s = pd.Series(val.values, index=dt, name='TGA_DTS').dropna()
