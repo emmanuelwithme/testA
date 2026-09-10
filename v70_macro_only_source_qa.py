@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import StringIO
 from pathlib import Path
 import json
+import sys
 import time
 import requests
 import pandas as pd
@@ -50,7 +51,7 @@ def fred_csv(series_id: str, attempts: int = 4) -> pd.Series:
     raise last_exc if last_exc else RuntimeError(f'{series_id}: unknown fetch failure')
 
 
-def main():
+def main() -> int:
     rows = []
     cached = {}
 
@@ -112,16 +113,27 @@ def main():
             'warning': 'No zero-imputation for unavailable RRP/TGA. Formal weekly series requires as-of release mapping before computing NetLiquidity and delta13W.',
         }
 
+    raw_ok_count = sum(r.get('status') == 'RAW_SOURCE_OK' for r in rows)
+    transport_fail_count = sum(r.get('status') in {'RUNNER_NETWORK_TIMEOUT', 'RUNNER_NETWORK_ERROR'} for r in rows)
     report = {
         'candidate': 'V70.2 Macro-only Weekly Candidate',
         'source_rows': rows,
+        'raw_source_ok_count': raw_ok_count,
+        'transport_fail_count': transport_fail_count,
         'net_liquidity_raw_feasibility': nl,
         'official_series_ids': ['T5YIE','DFII10','WALCL','RRPONTSYD','WTREGEN','SAHMREALTIME'],
         'still_requires_separate_licensed_or_archival_validation': ['PMI_MANUFACTURING','PMI_SERVICES','LEI_YOY'],
         'formal_backtest_ready': False,
+        'qa_pass': raw_ok_count > 0,
+        'qa_note': 'Workflow must not report success when every official-source fetch failed. Zero usable sources is a CI failure, even when the cause is transient transport failure.'
     }
     (OUT/'source_qa.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
+    if raw_ok_count == 0:
+        print('SOURCE_QA_FAIL: zero official sources were retrieved; inspect transport and retry/fallback endpoints.', file=sys.stderr)
+        return 2
+    return 0
+
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
