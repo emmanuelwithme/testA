@@ -22,6 +22,12 @@ FRED = {
     'SAHM_RULE': ('SAHMREALTIME', 'percentage_points_keep_numeric'),
 }
 
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 LivingWaterAI research backtest/1.0',
+    'Accept': 'application/json,text/csv,text/plain,*/*',
+    'Connection': 'close',
+}
+
 
 def fred_csv(series_id: str, attempts: int = 3) -> pd.Series:
     # Bound the request to the formal backtest window. This avoids asking the
@@ -30,16 +36,11 @@ def fred_csv(series_id: str, attempts: int = 3) -> pd.Series:
         f'https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={FORMAL_START}&coed={FORMAL_END}',
         f'https://fred.stlouisfed.org/graph/fredgraph.csv?cosd={FORMAL_START}&coed={FORMAL_END}&id={series_id}',
     ]
-    headers = {
-        'User-Agent': 'Mozilla/5.0 LivingWaterAI research backtest/1.0',
-        'Accept': 'text/csv,text/plain,*/*',
-        'Connection': 'close',
-    }
     last_exc = None
     for url in urls:
         for attempt in range(1, attempts + 1):
             try:
-                r = requests.get(url, timeout=(8, 20), headers=headers)
+                r = requests.get(url, timeout=(8, 20), headers=HEADERS)
                 r.raise_for_status()
                 df = pd.read_csv(StringIO(r.text))
                 if len(df.columns) < 2:
@@ -63,6 +64,58 @@ def fred_csv(series_id: str, attempts: int = 3) -> pd.Series:
     raise last_exc if last_exc else RuntimeError(f'{series_id}: unknown fetch failure')
 
 
+def treasury_tga(attempts: int = 3) -> pd.Series:
+    """Official U.S. Treasury Fiscal Data fallback for TGA/operating cash.
+
+    Uses Daily Treasury Statement Table I.  This is a raw-source availability
+    check only; formal PIT use still requires the publication/availability-date
+    mapping required by the mother backtest rules.
+    """
+    base = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/dts/dts_table_1'
+    params = {
+        'fields': 'record_date,account_type,close_today_bal',
+        'filter': f'record_date:gte:{FORMAL_START},record_date:lte:{FORMAL_END}',
+        'sort': 'record_date',
+        'page[size]': '10000',
+        'format': 'json',
+    }
+    last_exc = None
+    for attempt in range(1, attempts + 1):
+        try:
+            r = requests.get(base, params=params, timeout=(8, 30), headers=HEADERS)
+            r.raise_for_status()
+            payload = r.json()
+            rows = payload.get('data', [])
+            if not rows:
+                raise RuntimeError('Treasury DTS: empty data')
+            df = pd.DataFrame(rows)
+            required = {'record_date', 'account_type', 'close_today_bal'}
+            if not required.issubset(df.columns):
+                raise RuntimeError(f'Treasury DTS: missing fields {required - set(df.columns)}')
+            acct = df['account_type'].astype(str).str.lower()
+            # Treasury changed labels over time; prefer exact TGA rows, otherwise
+            # accept the official operating-cash/TGA row containing Treasury General Account.
+            mask = acct.str.contains('treasury general account', na=False)
+            if not mask.any():
+                raise RuntimeError('Treasury DTS: Treasury General Account rows not found')
+            x = df.loc[mask].copy()
+            dt = pd.to_datetime(x['record_date'], errors='coerce')
+            val = pd.to_numeric(x['close_today_bal'], errors='coerce')
+            s = pd.Series(val.values, index=dt, name='TGA_DTS').dropna()
+            s = s[~s.index.isna()].sort_index()
+            s = s[~s.index.duplicated(keep='last')]
+            if len(s) == 0:
+                raise RuntimeError('Treasury DTS: no usable TGA observations')
+            return s
+        except requests.exceptions.RequestException as exc:
+            last_exc = exc
+            if attempt < attempts:
+                time.sleep(attempt)
+                continue
+            break
+    raise last_exc if last_exc else RuntimeError('Treasury DTS: unknown fetch failure')
+
+
 def main() -> int:
     rows = []
     cached = {}
@@ -74,6 +127,7 @@ def main() -> int:
             rows.append({
                 'logical_input': logical,
                 'series_id': sid,
+                'source': 'FRED official series endpoint',
                 'status': 'RAW_SOURCE_OK',
                 'first_observation': str(s.index.min().date()),
                 'last_observation': str(s.index.max().date()),
@@ -83,6 +137,34 @@ def main() -> int:
                 'pit_note': 'Raw historical source exists; formal use still requires availability-date/release-lag mapping or vintage validation where applicable.',
             })
         except requests.exceptions.ReadTimeout as e:
+            # For TGA only, try the independent official U.S. Treasury Fiscal Data API.
+            if logical == 'TGA':
+                try:
+                    s = treasury_tga()
+                    cached[logical] = s
+                    rows.append({
+                        'logical_input': logical,
+                        'series_id': 'DTS_TABLE_1_TGA',
+                        'source': 'U.S. Treasury Fiscal Data Daily Treasury Statement Table I',
+                        'fallback_from': sid,
+                        'status': 'RAW_SOURCE_OK_OFFICIAL_FALLBACK',
+                        'first_observation': str(s.index.min().date()),
+                        'last_observation': str(s.index.max().date()),
+                        'n': int(len(s)),
+                        'conversion': 'million_usd_to_bn',
+                        'formal_pit_ready': False,
+                        'pit_note': 'Official Treasury raw source retrieved; formal use still requires publication/availability-date mapping and unit QA.',
+                    })
+                    continue
+                except Exception as fb:
+                    rows.append({
+                        'logical_input': logical, 'series_id': sid,
+                        'status': 'RUNNER_NETWORK_TIMEOUT_AND_OFFICIAL_FALLBACK_FAIL',
+                        'error': repr(e), 'fallback_error': repr(fb),
+                        'source_unavailable': False, 'formal_pit_ready': False,
+                        'note': 'Both FRED transport and Treasury official fallback failed; this does not establish source unavailability.'
+                    })
+                    continue
             rows.append({
                 'logical_input': logical, 'series_id': sid,
                 'status': 'RUNNER_NETWORK_TIMEOUT', 'error': repr(e),
@@ -121,8 +203,12 @@ def main() -> int:
             'warning': 'No zero-imputation for unavailable RRP/TGA. Formal weekly series requires as-of release mapping before computing NetLiquidity and delta13W.',
         }
 
-    raw_ok_count = sum(r.get('status') == 'RAW_SOURCE_OK' for r in rows)
-    transport_fail_count = sum(r.get('status') in {'RUNNER_NETWORK_TIMEOUT', 'RUNNER_NETWORK_ERROR'} for r in rows)
+    ok_statuses = {'RAW_SOURCE_OK', 'RAW_SOURCE_OK_OFFICIAL_FALLBACK'}
+    raw_ok_count = sum(r.get('status') in ok_statuses for r in rows)
+    transport_fail_count = sum(r.get('status') in {
+        'RUNNER_NETWORK_TIMEOUT', 'RUNNER_NETWORK_ERROR',
+        'RUNNER_NETWORK_TIMEOUT_AND_OFFICIAL_FALLBACK_FAIL'
+    } for r in rows)
     report = {
         'candidate': 'V70.2 Macro-only Weekly Candidate',
         'formal_window': f'{FORMAL_START}..{FORMAL_END}',
@@ -131,10 +217,11 @@ def main() -> int:
         'transport_fail_count': transport_fail_count,
         'net_liquidity_raw_feasibility': nl,
         'official_series_ids': ['T5YIE','DFII10','WALCL','RRPONTSYD','WTREGEN','SAHMREALTIME'],
+        'official_fallbacks': {'TGA': 'U.S. Treasury Fiscal Data DTS Table I'},
         'still_requires_separate_licensed_or_archival_validation': ['PMI_MANUFACTURING','PMI_SERVICES','LEI_YOY'],
         'formal_backtest_ready': False,
         'qa_pass': raw_ok_count > 0,
-        'qa_note': 'Zero usable sources is a CI failure. Bounded-window requests are used to reduce transport load without changing the formal data window.'
+        'qa_note': 'Raw-source transport QA only. A green source QA is not formal PIT readiness; availability-date/release-lag and vintage rules remain mandatory.'
     }
     (OUT/'source_qa.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(report, ensure_ascii=False, indent=2))
