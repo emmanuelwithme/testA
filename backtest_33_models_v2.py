@@ -89,7 +89,7 @@ def xirr(cfs):
     if flo*fhi>0:return np.nan
     for _ in range(160):
         mid=(lo+hi)/2; fm=f(mid)
-        if flo*fm<=0:hi=mid; fhi=fm
+        if flo*fm<=0:hi=mid; fhi=f(mid)
         else:lo=mid; flo=fm
     return (lo+hi)/2
 
@@ -105,7 +105,6 @@ def twr_metrics(nav,unit,flows):
                 xirr_mwr=xirr(cf),twr_cagr=cagr,unitized_mdd=mdd,sharpe=sh,sortino=so,calmar=cal)
 
 def build_schedule(assets,mode,p):
-    # events: (date, asset, amount). flows: external annual 1m dates.
     events=[]; flows=[]; years=range(2005,2027)
     single=mode.split(':')[1] if 'single:' in mode else None
     monthly=mode.startswith('monthly')
@@ -203,7 +202,17 @@ def cross_year(model,d):
 
 def main():
     p,fx=prices_twd(); park=parking_index(fx); rows=[]; results={}
-    rows.append({'model':'Case1_V82_plus_BondV75_dynamic_common_pool','status':'BLOCKED_UNPROGRAMMABLE_CROSS_ASSET_ALLOCATOR','reason':'V82/V75缺少共同資金不足時跨股票/債券的正式仲裁規則；依母規則不可人工補值。'})
+    # V70.2 now formally owns the top-level stock/bond/parking bucket allocation.
+    # The former cross-asset allocator ambiguity is resolved: the stock bucket is
+    # managed only by V82, the bond bucket only by Bond V75, and unused budget
+    # remains in SGOV/official short-bond parking.  Case 1 is still not runnable
+    # until V82's validated deployment calibration and the formal PIT/T+1 macro
+    # data pipeline are available.  Do not invent either in this benchmark code.
+    rows.append({
+        'model':'Case1_V82_plus_BondV75_dynamic_common_pool',
+        'status':'BLOCKED_MISSING_VALIDATED_DEPLOYMENT_CALIBRATION_AND_PIT_DATA',
+        'reason':'V70.2分桶仲裁已解決；目前缺少V82正式Current Validated Deployment Calibration，以及V70.2/V82所需完整PIT/T+1資料管線。依母規則不可人工補值或在回測碼自行發明部署比例。'
+    })
     specs=[]
     for a in RISK:specs.append((f'Case2_AnnualSingle_{a}',[a],f'annual_single:{a}'))
     specs.append(('Case3_AnnualEqual_All11',list(RISK),'annual_equal'))
