@@ -4,58 +4,60 @@ from pathlib import Path
 OUT = Path('v70_weekly_preflight_output')
 OUT.mkdir(exist_ok=True)
 
-# Exact source-defined inputs that require historical Point-in-Time reconstruction
-# before the V70.2 weekly top-level allocator can produce a FORMAL backtest.
-# Important: m06 Fed cut expectation is visible in the UI but is NOT a member of
-# the seven mSafe groups in the source calcTotal() implementation, so it is not a
-# hard blocker for reproducing mSafe itself.
+# V70.2 Macro-only Weekly Candidate: valuation group is intentionally removed.
+# Slow macro data use Last Known Valid PIT / as-of carry-forward; absence of a new
+# release is not missing data. Unit QA is a hard gate in the execution engine.
 requirements = [
-    ('VIX', 'market_daily', True, 'V70.2 panic/volatility'),
-    ('MOVE', 'market_daily', True, 'V70.2 panic/volatility'),
-    ('HY_OAS', 'fred_daily', True, 'V70.2 credit'),
-    ('CORE_CPI_YOY', 'macro_release_pit', True, 'V70.2 inflation'),
-    ('5Y_BREAKEVEN', 'fred_daily', True, 'V70.2 inflation/crisis'),
-    ('5Y_BREAKEVEN_DELTA_1M', 'derived_from_pit', True, 'V70.2 inflation/crisis'),
-    ('REAL_10Y', 'fred_daily', True, 'V70.2 rates/crisis'),
-    ('10Y_MINUS_2Y', 'fred_daily', True, 'V70.2 rates'),
-    ('NET_LIQUIDITY_DELTA_13W', 'derived_fed_rrp_tga_pit', True, 'V70.2 liquidity/crisis'),
-    ('DXY', 'market_daily', True, 'V70.2 liquidity/accelerator'),
-    ('WTI', 'market_daily', True, 'V70.2 liquidity/accelerator'),
-    ('PMI_MANUFACTURING', 'macro_release_pit', True, 'V70.2 growth'),
-    ('PMI_SERVICES', 'macro_release_pit', True, 'V70.2 growth'),
-    ('LEI_YOY', 'macro_release_pit', True, 'V70.2 growth/recession'),
-    ('SAHM_RULE', 'fred_monthly_pit', True, 'V70.2 recession'),
-    ('U3_UNEMPLOYMENT', 'macro_release_pit', True, 'V70.2 recession'),
-    ('NFP_3M_AVG', 'macro_release_pit', True, 'V70.2 recession'),
-    ('QQQ_TTM_PE', 'historical_valuation_pit', True, 'V70.2 valuation'),
-    ('SPY_TTM_PE', 'historical_valuation_pit', True, 'V70.2 valuation'),
-    ('VT_TTM_PE', 'historical_valuation_pit', True, 'V70.2 valuation'),
+    ('VIX', 'market_daily', True, 'panic/volatility'),
+    ('MOVE', 'market_daily', True, 'panic/volatility'),
+    ('HY_OAS', 'fred_or_validated_snapshot', True, 'credit'),
+    ('CORE_CPI_YOY', 'macro_release_pit', True, 'inflation'),
+    ('5Y_BREAKEVEN', 'fred_daily', True, 'inflation/crisis'),
+    ('5Y_BREAKEVEN_DELTA_1M', 'derived_from_pit', True, 'crisis'),
+    ('REAL_10Y', 'fred_daily', True, 'rates/crisis'),
+    ('10Y_MINUS_2Y', 'derived_fred_daily', True, 'rates'),
+    ('NET_LIQUIDITY_DELTA_13W', 'derived_fed_rrp_tga_pit', True, 'liquidity/crisis'),
+    ('DXY', 'market_daily', True, 'liquidity/accelerator'),
+    ('WTI', 'market_daily', True, 'liquidity/accelerator'),
+    ('PMI_MANUFACTURING', 'macro_release_pit', True, 'growth'),
+    ('PMI_SERVICES', 'macro_release_pit', True, 'growth'),
+    ('LEI_YOY', 'macro_release_pit', True, 'growth/recession'),
+    ('SAHM_RULE', 'fred_realtime_or_pit', True, 'recession'),
+    ('U3_UNEMPLOYMENT', 'macro_release_pit', True, 'recession'),
+    ('NFP_3M_AVG', 'macro_release_pit', True, 'recession'),
 ]
 
-# Repository plumbing confirmed by code search before this file was committed.
-# "available" here means there is already reusable historical plumbing in the repo,
-# NOT that formal PIT parity is automatically proven.
+# Confirmed reusable repo plumbing as of 2026-09-10. This means code/data access
+# exists somewhere in the repository, not that full 2005-2026 PIT parity is proven.
 repo_plumbing = {
     'VIX': True,
+    'MOVE': True,
     'HY_OAS': True,
     'CORE_CPI_YOY': True,
-    '10Y_MINUS_2Y': True,
-    'U3_UNEMPLOYMENT': True,
-    'NFP_3M_AVG': True,
-    'REAL_10Y': False,
-    'MOVE': True,
     '5Y_BREAKEVEN': False,
     '5Y_BREAKEVEN_DELTA_1M': False,
+    'REAL_10Y': False,
+    '10Y_MINUS_2Y': True,
     'NET_LIQUIDITY_DELTA_13W': False,
-    'DXY': False,
-    'WTI': False,
+    'DXY': True,
+    'WTI': True,
     'PMI_MANUFACTURING': False,
     'PMI_SERVICES': False,
     'LEI_YOY': False,
     'SAHM_RULE': False,
-    'QQQ_TTM_PE': False,
-    'SPY_TTM_PE': False,
-    'VT_TTM_PE': False,
+    'U3_UNEMPLOYMENT': True,
+    'NFP_3M_AVG': True,
+}
+
+public_source_path = {
+    '5Y_BREAKEVEN': 'PUBLIC_OFFICIAL_SOURCE_IDENTIFIED',
+    '5Y_BREAKEVEN_DELTA_1M': 'DERIVABLE_AFTER_5Y_BE',
+    'REAL_10Y': 'PUBLIC_OFFICIAL_SOURCE_IDENTIFIED',
+    'NET_LIQUIDITY_DELTA_13W': 'PUBLIC_COMPONENTS_IDENTIFIED',
+    'SAHM_RULE': 'PUBLIC_OFFICIAL_SOURCE_IDENTIFIED',
+    'PMI_MANUFACTURING': 'LICENSE_OR_PIT_HISTORY_TO_VALIDATE',
+    'PMI_SERVICES': 'LICENSE_OR_PIT_HISTORY_TO_VALIDATE',
+    'LEI_YOY': 'LICENSE_OR_PIT_HISTORY_TO_VALIDATE',
 }
 
 rows=[]
@@ -63,25 +65,33 @@ for name,kind,required,role in requirements:
     rows.append({
         'input': name,
         'source_class': kind,
-        'required_for_exact_v70_2': required,
+        'required_for_macro_only': required,
         'repo_plumbing_found': bool(repo_plumbing.get(name, False)),
+        'source_path_status': public_source_path.get(name, 'EXISTING_REPO_PLUMBING_REQUIRES_PIT_QA'),
         'formal_pit_parity': 'UNVERIFIED',
+        'unit_qa_hard_gate': True,
+        'asof_carry_forward_for_slow_release': kind in {'macro_release_pit','fred_realtime_or_pit'},
         'role': role,
     })
 
 missing=[r['input'] for r in rows if not r['repo_plumbing_found']]
+license_risk=[r['input'] for r in rows if r['source_path_status']=='LICENSE_OR_PIT_HISTORY_TO_VALIDATE']
 status={
-    'candidate': 'V82 + BondV75 + V70.2 Weekly Macro Allocator',
+    'candidate': 'V70.2 Macro-only Weekly + V82 + BondV75',
     'formal_window': '2005-01-01..2026-08-31',
     'modern_subsample': '2019-01-01..2026-08-31',
     'stress_periods': [2008,2020,2022],
     'state': 'BLOCKED_PRECHECK' if missing else 'READY_FOR_PIT_VALIDATION',
-    'reason': 'Exact V70.2 historical PIT inputs must be sourced/validated before formal performance output. No substitution or manual backfill is allowed.',
-    'missing_repo_plumbing': missing,
+    'reason': 'Macro-only removes ETF valuation PIT blockers. Remaining missing plumbing must be sourced and PIT-validated; no future backfill or silent proxy substitution.',
+    'valuation_group_removed': True,
+    'removed_inputs': ['QQQ_TTM_PE','SPY_TTM_PE','VT_TTM_PE'],
     'required_input_count': len(rows),
     'existing_plumbing_count': sum(r['repo_plumbing_found'] for r in rows),
-    'ui_only_not_msafe_blocker': ['FED_CUT_EXPECTATION_m06'],
-    'weekly_anchor': 'SENSITIVITY_REQUIRED_NOT_SILENTLY_FIXED',
+    'missing_repo_plumbing': missing,
+    'license_or_pit_history_risk': license_risk,
+    'slow_data_rule': 'LAST_KNOWN_VALID_PIT_ASOF_CARRY_FORWARD',
+    'unit_qa': 'HARD_GATE',
+    'exact_group_weights': ['18/90','16/90','14/90','12/90','16/90','14/90'],
     'v82_changed': False,
     'bond_v75_changed': False,
 }
