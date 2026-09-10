@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import StringIO
 from pathlib import Path
 import json
+import time
 import requests
 import pandas as pd
 
@@ -20,66 +20,80 @@ FRED = {
 }
 
 
-def fred_csv(series_id: str) -> pd.Series:
+def fred_csv(series_id: str, attempts: int = 4) -> pd.Series:
     url = f'https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}'
-    r = requests.get(url, timeout=20, headers={'User-Agent': 'LivingWaterAI research backtest'})
-    r.raise_for_status()
-    df = pd.read_csv(StringIO(r.text))
-    if len(df.columns) < 2:
-        raise RuntimeError(f'{series_id}: malformed FRED CSV')
-    dc, vc = df.columns[:2]
-    dt = pd.to_datetime(df[dc], errors='coerce')
-    val = pd.to_numeric(df[vc], errors='coerce')
-    s = pd.Series(val.values, index=dt, name=series_id).dropna()
-    s = s[~s.index.isna()].sort_index()
-    if s.index.duplicated().any():
-        raise RuntimeError(f'{series_id}: duplicate dates')
-    if len(s) == 0:
-        raise RuntimeError(f'{series_id}: empty series')
-    return s
+    last_exc = None
+    headers = {'User-Agent': 'LivingWaterAI research backtest/1.0'}
+    for attempt in range(1, attempts + 1):
+        try:
+            r = requests.get(url, timeout=(10, 60), headers=headers)
+            r.raise_for_status()
+            df = pd.read_csv(StringIO(r.text))
+            if len(df.columns) < 2:
+                raise RuntimeError(f'{series_id}: malformed FRED CSV')
+            dc, vc = df.columns[:2]
+            dt = pd.to_datetime(df[dc], errors='coerce')
+            val = pd.to_numeric(df[vc], errors='coerce')
+            s = pd.Series(val.values, index=dt, name=series_id).dropna()
+            s = s[~s.index.isna()].sort_index()
+            if s.index.duplicated().any():
+                raise RuntimeError(f'{series_id}: duplicate dates')
+            if len(s) == 0:
+                raise RuntimeError(f'{series_id}: empty series')
+            return s
+        except requests.exceptions.RequestException as exc:
+            last_exc = exc
+            if attempt < attempts:
+                time.sleep(2 ** (attempt - 1))
+                continue
+            raise
+    raise last_exc if last_exc else RuntimeError(f'{series_id}: unknown fetch failure')
 
 
 def main():
     rows = []
     cached = {}
-    with ThreadPoolExecutor(max_workers=len(FRED)) as ex:
-        futs = {ex.submit(fred_csv, sid):(logical,sid,conversion) for logical,(sid,conversion) in FRED.items()}
-        for fut in as_completed(futs):
-            logical,sid,conversion = futs[fut]
-            try:
-                s = fut.result()
-                cached[logical] = s
-                rows.append({
-                    'logical_input': logical,
-                    'series_id': sid,
-                    'status': 'RAW_SOURCE_OK',
-                    'first_observation': str(s.index.min().date()),
-                    'last_observation': str(s.index.max().date()),
-                    'n': int(len(s)),
-                    'conversion': conversion,
-                    'formal_pit_ready': False,
-                    'pit_note': 'Raw historical source exists; formal use still requires availability-date/release-lag mapping or vintage validation where applicable.',
-                })
-            except requests.exceptions.ReadTimeout as e:
-                rows.append({
-                    'logical_input': logical, 'series_id': sid,
-                    'status': 'RUNNER_NETWORK_TIMEOUT', 'error': repr(e),
-                    'source_unavailable': False, 'formal_pit_ready': False,
-                    'note': 'Transport failure is not evidence that the official series is unavailable.'
-                })
-            except requests.exceptions.RequestException as e:
-                rows.append({
-                    'logical_input': logical, 'series_id': sid,
-                    'status': 'RUNNER_NETWORK_ERROR', 'error': repr(e),
-                    'source_unavailable': False, 'formal_pit_ready': False,
-                    'note': 'Transport failure is not evidence that the official series is unavailable.'
-                })
-            except Exception as e:
-                rows.append({
-                    'logical_input': logical, 'series_id': sid,
-                    'status': 'SOURCE_PARSE_OR_QA_FAIL', 'error': repr(e),
-                    'formal_pit_ready': False
-                })
+
+    # Fetch sequentially on purpose. Parallel FRED graph requests were causing all
+    # six official series to time out together on the GitHub runner; that is a
+    # transport artifact, not evidence that the series are unavailable.
+    for logical, (sid, conversion) in FRED.items():
+        try:
+            s = fred_csv(sid)
+            cached[logical] = s
+            rows.append({
+                'logical_input': logical,
+                'series_id': sid,
+                'status': 'RAW_SOURCE_OK',
+                'first_observation': str(s.index.min().date()),
+                'last_observation': str(s.index.max().date()),
+                'n': int(len(s)),
+                'conversion': conversion,
+                'formal_pit_ready': False,
+                'pit_note': 'Raw historical source exists; formal use still requires availability-date/release-lag mapping or vintage validation where applicable.',
+            })
+        except requests.exceptions.ReadTimeout as e:
+            rows.append({
+                'logical_input': logical, 'series_id': sid,
+                'status': 'RUNNER_NETWORK_TIMEOUT', 'error': repr(e),
+                'source_unavailable': False, 'formal_pit_ready': False,
+                'note': 'Transport failure after retries is not evidence that the official series is unavailable.'
+            })
+        except requests.exceptions.RequestException as e:
+            rows.append({
+                'logical_input': logical, 'series_id': sid,
+                'status': 'RUNNER_NETWORK_ERROR', 'error': repr(e),
+                'source_unavailable': False, 'formal_pit_ready': False,
+                'note': 'Transport failure after retries is not evidence that the official series is unavailable.'
+            })
+        except Exception as e:
+            rows.append({
+                'logical_input': logical, 'series_id': sid,
+                'status': 'SOURCE_PARSE_OR_QA_FAIL', 'error': repr(e),
+                'formal_pit_ready': False
+            })
+        time.sleep(1)
+
     rows.sort(key=lambda z: z['logical_input'])
 
     nl = {'status': 'NOT_EVALUATED'}
