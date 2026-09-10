@@ -1,0 +1,25 @@
+name: V70.2 Weekly Allocator Preflight
+
+on:
+  push:
+    paths:
+      - 'V70_2_WEEKLY_ALLOCATOR_CANDIDATE.md'
+      - 'v70_weekly_candidate_preflight.py'
+      - '.github/workflows/v70_weekly_candidate_preflight.yml'
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run exact-input preflight
+        run: python v70_weekly_candidate_preflight.py
+      - name: Upload preflight artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: v70-weekly-preflight
+          path: v70_weekly_preflight_output/
