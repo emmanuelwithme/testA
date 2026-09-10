@@ -67,11 +67,11 @@ def fred_csv(series_id: str, attempts: int = 3) -> pd.Series:
 def treasury_tga(attempts: int = 3) -> pd.Series:
     """Official U.S. Treasury Fiscal Data fallback for TGA/operating cash.
 
-    Uses Daily Treasury Statement Table I.  This is a raw-source availability
-    check only; formal PIT use still requires the publication/availability-date
-    mapping required by the mother backtest rules.
+    Uses the Daily Treasury Statement Operating Cash Balance endpoint. This is
+    a raw-source availability check only; formal PIT use still requires the
+    publication/availability-date mapping required by the mother backtest rules.
     """
-    base = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/dts/dts_table_1'
+    base = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/dts/operating_cash_balance'
     params = {
         'fields': 'record_date,account_type,close_today_bal',
         'filter': f'record_date:gte:{FORMAL_START},record_date:lte:{FORMAL_END}',
@@ -93,8 +93,6 @@ def treasury_tga(attempts: int = 3) -> pd.Series:
             if not required.issubset(df.columns):
                 raise RuntimeError(f'Treasury DTS: missing fields {required - set(df.columns)}')
             acct = df['account_type'].astype(str).str.lower()
-            # Treasury changed labels over time; prefer exact TGA rows, otherwise
-            # accept the official operating-cash/TGA row containing Treasury General Account.
             mask = acct.str.contains('treasury general account', na=False)
             if not mask.any():
                 raise RuntimeError('Treasury DTS: Treasury General Account rows not found')
@@ -137,15 +135,14 @@ def main() -> int:
                 'pit_note': 'Raw historical source exists; formal use still requires availability-date/release-lag mapping or vintage validation where applicable.',
             })
         except requests.exceptions.ReadTimeout as e:
-            # For TGA only, try the independent official U.S. Treasury Fiscal Data API.
             if logical == 'TGA':
                 try:
                     s = treasury_tga()
                     cached[logical] = s
                     rows.append({
                         'logical_input': logical,
-                        'series_id': 'DTS_TABLE_1_TGA',
-                        'source': 'U.S. Treasury Fiscal Data Daily Treasury Statement Table I',
+                        'series_id': 'DTS_OPERATING_CASH_BALANCE_TGA',
+                        'source': 'U.S. Treasury Fiscal Data Daily Treasury Statement Operating Cash Balance',
                         'fallback_from': sid,
                         'status': 'RAW_SOURCE_OK_OFFICIAL_FALLBACK',
                         'first_observation': str(s.index.min().date()),
@@ -217,7 +214,7 @@ def main() -> int:
         'transport_fail_count': transport_fail_count,
         'net_liquidity_raw_feasibility': nl,
         'official_series_ids': ['T5YIE','DFII10','WALCL','RRPONTSYD','WTREGEN','SAHMREALTIME'],
-        'official_fallbacks': {'TGA': 'U.S. Treasury Fiscal Data DTS Table I'},
+        'official_fallbacks': {'TGA': 'U.S. Treasury Fiscal Data DTS Operating Cash Balance'},
         'still_requires_separate_licensed_or_archival_validation': ['PMI_MANUFACTURING','PMI_SERVICES','LEI_YOY'],
         'formal_backtest_ready': False,
         'qa_pass': raw_ok_count > 0,
