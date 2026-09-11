@@ -1,0 +1,26 @@
+name: V70.2 Treasury Rates Probe
+
+on:
+  push:
+    paths:
+      - 'v70_treasury_rates_probe.py'
+      - '.github/workflows/v70_treasury_rates_probe.yml'
+  workflow_dispatch:
+
+jobs:
+  treasury-rates-probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas requests
+      - name: Probe official Treasury rates transport
+        run: python v70_treasury_rates_probe.py
+      - name: Upload Treasury rates probe artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v70-treasury-rates-probe
+          path: v70_treasury_rates_probe_output/
