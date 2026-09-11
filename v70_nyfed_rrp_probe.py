@@ -10,6 +10,17 @@ PARAMS = {"startDate": "2005-01-01", "endDate": "2026-08-31"}
 OUT = Path("v70_nyfed_rrp_probe_output.json")
 
 
+def fetch_rrp_operations() -> list[dict]:
+    r = requests.get(URL, params=PARAMS, timeout=45)
+    r.raise_for_status()
+    payload = r.json()
+    repo = payload.get("repo", {}) if isinstance(payload, dict) else {}
+    operations = repo.get("operations", []) if isinstance(repo, dict) else []
+    if not operations:
+        raise RuntimeError("NYFED_RRP_PROBE_EMPTY: official endpoint returned no operations")
+    return operations
+
+
 def main() -> int:
     r = requests.get(URL, params=PARAMS, timeout=45)
     r.raise_for_status()
