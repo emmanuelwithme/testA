@@ -7,6 +7,7 @@ from pathlib import Path
 import v70_macro_only_source_qa as base
 from v70_fed_board_h41_probe import fetch_h41_total_assets
 from v70_nyfed_rrp_probe import fetch_rrp_operations
+from v70_treasury_rates_probe import fetch_treasury_rate_components
 
 OUT = Path('v70_macro_source_qa_output')
 REPORT = OUT / 'source_qa.json'
@@ -16,7 +17,12 @@ OK = {
     'RAW_SOURCE_OK_OFFICIAL_FALLBACK',
     'RAW_SOURCE_OK_OFFICIAL_FED_BOARD',
     'RAW_SOURCE_OK_OFFICIAL_NYFED',
+    'RAW_SOURCE_OK_OFFICIAL_TREASURY',
 }
+
+
+def _replace(rows: list[dict], logical_input: str, replacement: dict) -> list[dict]:
+    return [r for r in rows if r.get('logical_input') != logical_input] + [replacement]
 
 
 def main() -> int:
@@ -42,7 +48,7 @@ def main() -> int:
                 'formal_pit_ready': False,
                 'pit_note': 'Official Board raw source retrieved. Formal use still requires WALCL equivalence QA plus release-availability/PIT mapping before backtest integration.',
             }
-            rows = [r for r in rows if r.get('logical_input') != 'WALCL'] + [replacement]
+            rows = _replace(rows, 'WALCL', replacement)
         except Exception as exc:
             if walcl_row is not None:
                 walcl_row['fed_board_fallback_error'] = repr(exc)
@@ -65,10 +71,57 @@ def main() -> int:
                 'formal_pit_ready': False,
                 'pit_note': 'Official NY Fed operations source retrieved. Formal use still requires field-equivalence to the locked RRP input, operation/release timing, unit and PIT/T+1 QA.',
             }
-            rows = [r for r in rows if r.get('logical_input') != 'RRP'] + [replacement]
+            rows = _replace(rows, 'RRP', replacement)
         except Exception as exc:
             if rrp_row is not None:
                 rrp_row['nyfed_fallback_error'] = repr(exc)
+
+    breakeven_row = next((r for r in rows if r.get('logical_input') == '5Y_BREAKEVEN'), None)
+    real10_row = next((r for r in rows if r.get('logical_input') == 'REAL_10Y'), None)
+    need_treasury = (
+        breakeven_row is None or breakeven_row.get('status') not in OK or
+        real10_row is None or real10_row.get('status') not in OK
+    )
+    if need_treasury:
+        try:
+            rates = fetch_treasury_rate_components()
+            if breakeven_row is None or breakeven_row.get('status') not in OK:
+                x = rates[['date', 't5yie_candidate']].dropna()
+                replacement = {
+                    'logical_input': '5Y_BREAKEVEN',
+                    'series_id': 'TREASURY_BC_5YEAR_MINUS_TC_5YEAR',
+                    'source': 'U.S. Department of the Treasury Daily Interest Rate XML Feed',
+                    'fallback_from': 'T5YIE',
+                    'status': 'RAW_SOURCE_OK_OFFICIAL_TREASURY',
+                    'first_observation': None if x.empty else str(x['date'].min().date()),
+                    'last_observation': None if x.empty else str(x['date'].max().date()),
+                    'n': int(len(x)),
+                    'formula_candidate': 'BC_5YEAR - TC_5YEAR',
+                    'formal_pit_ready': False,
+                    'pit_note': 'Official Treasury components retrieved. Formal use still requires exact T5YIE equivalence, publication-availability, unit and PIT/T+1 QA.',
+                }
+                rows = _replace(rows, '5Y_BREAKEVEN', replacement)
+            if real10_row is None or real10_row.get('status') not in OK:
+                x = rates[['date', 'real_10y']].dropna()
+                replacement = {
+                    'logical_input': 'REAL_10Y',
+                    'series_id': 'TREASURY_TC_10YEAR',
+                    'source': 'U.S. Department of the Treasury Daily Real Yield Curve XML Feed',
+                    'fallback_from': 'DFII10',
+                    'status': 'RAW_SOURCE_OK_OFFICIAL_TREASURY',
+                    'first_observation': None if x.empty else str(x['date'].min().date()),
+                    'last_observation': None if x.empty else str(x['date'].max().date()),
+                    'n': int(len(x)),
+                    'field_candidate': 'TC_10YEAR',
+                    'formal_pit_ready': False,
+                    'pit_note': 'Official Treasury real 10Y retrieved. Formal use still requires exact DFII10 equivalence, publication-availability, unit and PIT/T+1 QA.',
+                }
+                rows = _replace(rows, 'REAL_10Y', replacement)
+        except Exception as exc:
+            if breakeven_row is not None:
+                breakeven_row['treasury_fallback_error'] = repr(exc)
+            if real10_row is not None:
+                real10_row['treasury_fallback_error'] = repr(exc)
 
     rows.sort(key=lambda r: r.get('logical_input', ''))
     report['source_rows'] = rows
@@ -84,6 +137,12 @@ def main() -> int:
     fallbacks['RRP'] = (
         'Federal Reserve Bank of New York Markets Data API reverse-repo operations; '
         'requires field-equivalence, operation/release timing, unit and PIT/T+1 QA before formal use'
+    )
+    fallbacks['5Y_BREAKEVEN'] = (
+        'U.S. Treasury BC_5YEAR minus TC_5YEAR; requires exact T5YIE equivalence and publication/PIT QA before formal use'
+    )
+    fallbacks['REAL_10Y'] = (
+        'U.S. Treasury TC_10YEAR; requires exact DFII10 equivalence and publication/PIT QA before formal use'
     )
 
     status_by_logical = {r.get('logical_input'): r.get('status') for r in rows}
