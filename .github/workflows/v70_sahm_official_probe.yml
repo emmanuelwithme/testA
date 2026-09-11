@@ -1,0 +1,26 @@
+name: V70.2 Sahm Official Probe
+
+on:
+  push:
+    paths:
+      - 'v70_sahm_official_probe.py'
+      - '.github/workflows/v70_sahm_official_probe.yml'
+  workflow_dispatch:
+
+jobs:
+  sahm-official-probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas requests
+      - name: Probe official FRED Sahm transports
+        run: python v70_sahm_official_probe.py
+      - name: Upload Sahm probe artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v70-sahm-official-probe
+          path: v70_sahm_official_probe_output/
