@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import StringIO
 from pathlib import Path
 import json
+import re
 import sys
 import time
 import requests
@@ -29,9 +30,57 @@ HEADERS = {
 }
 
 
-def fred_csv(series_id: str, attempts: int = 3) -> pd.Series:
-    # Bound the request to the formal backtest window. This avoids asking the
-    # FRED graph endpoint to build unnecessary pre-2005 history on every CI run.
+def _series_from_frame(df: pd.DataFrame, series_id: str) -> pd.Series:
+    if len(df.columns) < 2:
+        raise RuntimeError(f'{series_id}: malformed table')
+    dc, vc = df.columns[:2]
+    dt = pd.to_datetime(df[dc], errors='coerce')
+    val = pd.to_numeric(df[vc], errors='coerce')
+    s = pd.Series(val.values, index=dt, name=series_id).dropna()
+    s = s[~s.index.isna()].sort_index()
+    s = s.loc[(s.index >= pd.Timestamp(FORMAL_START)) & (s.index <= pd.Timestamp(FORMAL_END))]
+    if s.index.duplicated().any():
+        raise RuntimeError(f'{series_id}: duplicate dates')
+    if len(s) == 0:
+        raise RuntimeError(f'{series_id}: empty series')
+    return s
+
+
+def fred_static_txt(series_id: str, attempts: int = 2) -> pd.Series:
+    """Official FRED static text fallback.
+
+    FRED exposes a lightweight /data/SERIES.txt representation in addition to
+    the graph CSV endpoint.  The CI runner has repeatedly timed out on the graph
+    endpoint, so this fallback tests a separate official transport path without
+    changing the underlying series or introducing a proxy.
+    """
+    url = f'https://fred.stlouisfed.org/data/{series_id}.txt'
+    last_exc = None
+    for attempt in range(1, attempts + 1):
+        try:
+            r = requests.get(url, timeout=(8, 20), headers=HEADERS)
+            r.raise_for_status()
+            pairs = []
+            for line in r.text.splitlines():
+                m = re.match(r'^\s*(\d{4}-\d{2}-\d{2})\s+([^\s]+)\s*$', line)
+                if not m:
+                    continue
+                pairs.append((m.group(1), m.group(2)))
+            if not pairs:
+                raise RuntimeError(f'{series_id}: no observations parsed from FRED static text')
+            return _series_from_frame(pd.DataFrame(pairs, columns=['DATE', series_id]), series_id)
+        except requests.exceptions.RequestException as exc:
+            last_exc = exc
+            if attempt < attempts:
+                time.sleep(attempt)
+                continue
+            break
+    raise last_exc if last_exc else RuntimeError(f'{series_id}: FRED static text unknown failure')
+
+
+def fred_csv(series_id: str, attempts: int = 1) -> pd.Series:
+    # Bound the request to the formal backtest window. If the graph endpoint is
+    # unavailable from GitHub Actions, fall back to FRED's own static text file.
     urls = [
         f'https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={FORMAL_START}&coed={FORMAL_END}',
         f'https://fred.stlouisfed.org/graph/fredgraph.csv?cosd={FORMAL_START}&coed={FORMAL_END}&id={series_id}',
@@ -42,37 +91,25 @@ def fred_csv(series_id: str, attempts: int = 3) -> pd.Series:
             try:
                 r = requests.get(url, timeout=(8, 20), headers=HEADERS)
                 r.raise_for_status()
-                df = pd.read_csv(StringIO(r.text))
-                if len(df.columns) < 2:
-                    raise RuntimeError(f'{series_id}: malformed FRED CSV')
-                dc, vc = df.columns[:2]
-                dt = pd.to_datetime(df[dc], errors='coerce')
-                val = pd.to_numeric(df[vc], errors='coerce')
-                s = pd.Series(val.values, index=dt, name=series_id).dropna()
-                s = s[~s.index.isna()].sort_index()
-                if s.index.duplicated().any():
-                    raise RuntimeError(f'{series_id}: duplicate dates')
-                if len(s) == 0:
-                    raise RuntimeError(f'{series_id}: empty series')
-                return s
+                return _series_from_frame(pd.read_csv(StringIO(r.text)), series_id)
             except requests.exceptions.RequestException as exc:
                 last_exc = exc
                 if attempt < attempts:
                     time.sleep(attempt)
                     continue
                 break
-    raise last_exc if last_exc else RuntimeError(f'{series_id}: unknown fetch failure')
+    try:
+        return fred_static_txt(series_id)
+    except Exception as static_exc:
+        if last_exc:
+            raise requests.exceptions.ReadTimeout(
+                f'{series_id}: FRED graph transport failed ({last_exc!r}); static official fallback failed ({static_exc!r})'
+            ) from static_exc
+        raise
 
 
 def _select_tga_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """Select the Treasury cash account from DTS Operating Cash Balance rows.
-
-    The DTS table labels the Treasury cash account as "Federal Reserve Account"
-    for historical observations; some downstream descriptions refer to the same
-    Treasury cash account as the Treasury General Account.  Accept either label,
-    but do not use Total Operating Balance because it can include other cash
-    components and would silently change the V70.2 TGA definition.
-    """
+    """Select the Treasury cash account from DTS Operating Cash Balance rows."""
     acct = df['account_type'].astype(str).str.strip().str.lower()
     mask = (
         acct.str.contains('treasury general account', na=False)
@@ -82,12 +119,7 @@ def _select_tga_rows(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def treasury_tga(attempts: int = 3) -> pd.Series:
-    """Official U.S. Treasury Fiscal Data fallback for TGA/operating cash.
-
-    Uses the Daily Treasury Statement Operating Cash Balance endpoint. This is
-    a raw-source availability check only; formal PIT use still requires the
-    publication/availability-date mapping required by the mother backtest rules.
-    """
+    """Official U.S. Treasury Fiscal Data fallback for TGA/operating cash."""
     base = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/dts/operating_cash_balance'
     params = {
         'fields': 'record_date,account_type,close_today_bal',
@@ -141,7 +173,7 @@ def main() -> int:
             rows.append({
                 'logical_input': logical,
                 'series_id': sid,
-                'source': 'FRED official series endpoint',
+                'source': 'FRED official series endpoint/static official fallback',
                 'status': 'RAW_SOURCE_OK',
                 'first_observation': str(s.index.min().date()),
                 'last_observation': str(s.index.max().date()),
@@ -182,14 +214,14 @@ def main() -> int:
                 'logical_input': logical, 'series_id': sid,
                 'status': 'RUNNER_NETWORK_TIMEOUT', 'error': repr(e),
                 'source_unavailable': False, 'formal_pit_ready': False,
-                'note': 'Transport failure after bounded-window retries is not evidence that the official series is unavailable.'
+                'note': 'Official FRED graph and static transport paths failed; this is not evidence that the series is unavailable.'
             })
         except requests.exceptions.RequestException as e:
             rows.append({
                 'logical_input': logical, 'series_id': sid,
                 'status': 'RUNNER_NETWORK_ERROR', 'error': repr(e),
                 'source_unavailable': False, 'formal_pit_ready': False,
-                'note': 'Transport failure after bounded-window retries is not evidence that the official series is unavailable.'
+                'note': 'Transport failure is not evidence that the official series is unavailable.'
             })
         except Exception as e:
             rows.append({
@@ -230,11 +262,14 @@ def main() -> int:
         'transport_fail_count': transport_fail_count,
         'net_liquidity_raw_feasibility': nl,
         'official_series_ids': ['T5YIE','DFII10','WALCL','RRPONTSYD','WTREGEN','SAHMREALTIME'],
-        'official_fallbacks': {'TGA': 'U.S. Treasury Fiscal Data DTS Operating Cash Balance'},
+        'official_fallbacks': {
+            'FRED_SERIES': 'FRED official /data/SERIES.txt static representation',
+            'TGA': 'U.S. Treasury Fiscal Data DTS Operating Cash Balance'
+        },
         'still_requires_separate_licensed_or_archival_validation': ['PMI_MANUFACTURING','PMI_SERVICES','LEI_YOY'],
         'formal_backtest_ready': False,
         'qa_pass': raw_ok_count > 0,
-        'qa_note': 'Raw-source transport QA only. A green source QA is not formal PIT readiness; availability-date/release-lag and vintage rules remain mandatory.'
+        'qa_note': 'Raw-source transport QA only. Source completeness is enforced by workflow; availability-date/release-lag and vintage rules remain mandatory.'
     }
     (OUT/'source_qa.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(report, ensure_ascii=False, indent=2))
