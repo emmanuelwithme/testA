@@ -8,6 +8,7 @@ import v70_macro_only_source_qa as base
 from v70_fed_board_h41_probe import fetch_h41_total_assets
 from v70_nyfed_rrp_probe import fetch_rrp_operations
 from v70_treasury_rates_probe import fetch_treasury_rate_components
+from v70_sahm_official_probe import fetch_sahm_official
 
 OUT = Path('v70_macro_source_qa_output')
 REPORT = OUT / 'source_qa.json'
@@ -18,6 +19,8 @@ OK = {
     'RAW_SOURCE_OK_OFFICIAL_FED_BOARD',
     'RAW_SOURCE_OK_OFFICIAL_NYFED',
     'RAW_SOURCE_OK_OFFICIAL_TREASURY',
+    'RAW_SOURCE_OK_OFFICIAL_FRED_ALTERNATE',
+    'RAW_SOURCE_OK_OFFICIAL_FRED_PINNED_SNAPSHOT',
 }
 
 
@@ -123,6 +126,35 @@ def main() -> int:
             if real10_row is not None:
                 real10_row['treasury_fallback_error'] = repr(exc)
 
+    sahm_row = next((r for r in rows if r.get('logical_input') == 'SAHM_RULE'), None)
+    if sahm_row is None or sahm_row.get('status') not in OK:
+        try:
+            s, transport, provenance = fetch_sahm_official()
+            status = (
+                'RAW_SOURCE_OK_OFFICIAL_FRED_PINNED_SNAPSHOT'
+                if transport == 'OFFICIAL_FRED_PINNED_SNAPSHOT'
+                else 'RAW_SOURCE_OK_OFFICIAL_FRED_ALTERNATE'
+            )
+            replacement = {
+                'logical_input': 'SAHM_RULE',
+                'series_id': 'SAHMREALTIME',
+                'source': 'Federal Reserve Bank of St. Louis FRED official series',
+                'fallback_from': 'SAHMREALTIME direct FRED runner transport',
+                'status': status,
+                'transport': transport,
+                'first_observation': str(s.index.min().date()),
+                'last_observation': str(s.index.max().date()),
+                'n': int(len(s)),
+                'latest_value': float(s.iloc[-1]),
+                'provenance': provenance,
+                'formal_pit_ready': False,
+                'pit_note': 'Official SAHMREALTIME raw series retrieved or hash-pinned from the same official FRED table. Formal use still requires release-availability/T+1 mapping and gap QA.',
+            }
+            rows = _replace(rows, 'SAHM_RULE', replacement)
+        except Exception as exc:
+            if sahm_row is not None:
+                sahm_row['official_sahm_fallback_error'] = repr(exc)
+
     rows.sort(key=lambda r: r.get('logical_input', ''))
     report['source_rows'] = rows
     report['raw_source_ok_count'] = sum(r.get('status') in OK for r in rows)
@@ -143,6 +175,10 @@ def main() -> int:
     )
     fallbacks['REAL_10Y'] = (
         'U.S. Treasury TC_10YEAR; requires exact DFII10 equivalence and publication/PIT QA before formal use'
+    )
+    fallbacks['SAHM_RULE'] = (
+        'Federal Reserve Bank of St. Louis FRED SAHMREALTIME; if runner transport fails, use hash-pinned snapshot of the same official table; '
+        'requires release-availability/T+1 and gap QA before formal use'
     )
 
     status_by_logical = {r.get('logical_input'): r.get('status') for r in rows}
