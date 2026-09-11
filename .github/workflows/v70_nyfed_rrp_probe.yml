@@ -1,0 +1,28 @@
+name: V70.2 NY Fed RRP Probe
+
+on:
+  push:
+    paths:
+      - 'v70_nyfed_rrp_probe.py'
+      - '.github/workflows/v70_nyfed_rrp_probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rrp-probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests
+      - name: Probe official NY Fed reverse-repo transport
+        run: python v70_nyfed_rrp_probe.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v70-nyfed-rrp-probe
+          path: v70_nyfed_rrp_probe_output.json
