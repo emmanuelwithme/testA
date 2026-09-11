@@ -1,0 +1,15 @@
+{
+  "series_id": "SAHMREALTIME",
+  "title": "Real-time Sahm Rule Recession Indicator",
+  "official_source": "Federal Reserve Bank of St. Louis FRED",
+  "official_url": "https://fred.stlouisfed.org/data/SAHMREALTIME",
+  "fred_last_updated": "2026-09-04 08:39 CDT",
+  "snapshot_window": "2005-01-01..2026-08-01",
+  "rows": 260,
+  "usable_values": 259,
+  "missing_values": ["2025-10-01"],
+  "sha256": "51c1ee746c15578b98ebda8f5f63bf9f293694b17b2655b2c77e3d0a6fe346ba",
+  "provenance_note": "Pinned transcription of the official FRED table for deterministic GitHub-runner fallback after repeated fred.stlouisfed.org transport timeouts. This is not a third-party proxy and does not change the series definition.",
+  "formal_pit_ready": false,
+  "pit_note": "Formal weekly backtest use still requires release-availability/T+1 mapping, gap handling and point-in-time QA."
+}
