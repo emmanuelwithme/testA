@@ -5,7 +5,13 @@ on:
     paths:
       - 'v70_macro_only_source_qa_v2.py'
       - 'v70_macro_only_source_qa.py'
+      - 'v70_treasury_tga_paged.py'
       - 'v70_fed_board_h41_probe.py'
+      - 'v70_nyfed_rrp_probe.py'
+      - 'v70_treasury_rates_probe.py'
+      - 'v70_sahm_official_probe.py'
+      - 'data/official_snapshots/SAHMREALTIME_2005_2026-08.csv'
+      - 'data/official_snapshots/SAHMREALTIME_2005_2026-08.meta.json'
       - '.github/workflows/v70_macro_only_source_qa_v2.yml'
   workflow_dispatch:
 
