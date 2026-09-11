@@ -6,11 +6,17 @@ from pathlib import Path
 
 import v70_macro_only_source_qa as base
 from v70_fed_board_h41_probe import fetch_h41_total_assets
+from v70_nyfed_rrp_probe import fetch_rrp_operations
 
 OUT = Path('v70_macro_source_qa_output')
 REPORT = OUT / 'source_qa.json'
 REQUIRED = {'5Y_BREAKEVEN', 'REAL_10Y', 'WALCL', 'RRP', 'TGA', 'SAHM_RULE'}
-OK = {'RAW_SOURCE_OK', 'RAW_SOURCE_OK_OFFICIAL_FALLBACK', 'RAW_SOURCE_OK_OFFICIAL_FED_BOARD'}
+OK = {
+    'RAW_SOURCE_OK',
+    'RAW_SOURCE_OK_OFFICIAL_FALLBACK',
+    'RAW_SOURCE_OK_OFFICIAL_FED_BOARD',
+    'RAW_SOURCE_OK_OFFICIAL_NYFED',
+}
 
 
 def main() -> int:
@@ -41,6 +47,29 @@ def main() -> int:
             if walcl_row is not None:
                 walcl_row['fed_board_fallback_error'] = repr(exc)
 
+    rrp_row = next((r for r in rows if r.get('logical_input') == 'RRP'), None)
+    if rrp_row is None or rrp_row.get('status') not in OK:
+        try:
+            operations = fetch_rrp_operations()
+            dates = [r.get('operationDate') for r in operations if r.get('operationDate')]
+            replacement = {
+                'logical_input': 'RRP',
+                'series_id': 'NYFED_REVERSE_REPO_OPERATIONS',
+                'source': 'Federal Reserve Bank of New York Markets Data API',
+                'fallback_from': 'RRPONTSYD',
+                'status': 'RAW_SOURCE_OK_OFFICIAL_NYFED',
+                'first_observation': min(dates) if dates else None,
+                'last_observation': max(dates) if dates else None,
+                'n': int(len(operations)),
+                'field_candidate': 'totalAmtAccepted',
+                'formal_pit_ready': False,
+                'pit_note': 'Official NY Fed operations source retrieved. Formal use still requires field-equivalence to the locked RRP input, operation/release timing, unit and PIT/T+1 QA.',
+            }
+            rows = [r for r in rows if r.get('logical_input') != 'RRP'] + [replacement]
+        except Exception as exc:
+            if rrp_row is not None:
+                rrp_row['nyfed_fallback_error'] = repr(exc)
+
     rows.sort(key=lambda r: r.get('logical_input', ''))
     report['source_rows'] = rows
     report['raw_source_ok_count'] = sum(r.get('status') in OK for r in rows)
@@ -48,8 +77,13 @@ def main() -> int:
         'RUNNER_NETWORK_TIMEOUT', 'RUNNER_NETWORK_ERROR',
         'RUNNER_NETWORK_TIMEOUT_AND_OFFICIAL_FALLBACK_FAIL'
     } for r in rows)
-    report.setdefault('official_fallbacks', {})['WALCL'] = (
+    fallbacks = report.setdefault('official_fallbacks', {})
+    fallbacks['WALCL'] = (
         'Federal Reserve Board H.4.1 RESPPMA_N.WW; requires equivalence and PIT QA before formal use'
+    )
+    fallbacks['RRP'] = (
+        'Federal Reserve Bank of New York Markets Data API reverse-repo operations; '
+        'requires field-equivalence, operation/release timing, unit and PIT/T+1 QA before formal use'
     )
 
     status_by_logical = {r.get('logical_input'): r.get('status') for r in rows}
