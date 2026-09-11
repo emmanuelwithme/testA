@@ -95,26 +95,39 @@ def _to_frame(rows: list[dict[str, str]], kind: str) -> pd.DataFrame:
     return df.sort_values('date').drop_duplicates('date', keep='last')
 
 
-def main() -> int:
+def fetch_treasury_rate_components() -> pd.DataFrame:
+    """Fetch official Treasury 5Y nominal, 5Y real and 10Y real observations.
+
+    This helper provides raw official components only. It deliberately does not
+    declare FRED-series equivalence or PIT/T+1 readiness; those remain separate QA gates.
+    """
     nominal_rows: list[dict[str, str]] = []
     real_rows: list[dict[str, str]] = []
-    discovered = {'nominal': set(), 'real': set()}
 
     for year in range(FORMAL_START.year, FORMAL_END.year + 1):
-        nrows = _fetch_year('daily_treasury_yield_curve', year)
-        rrows = _fetch_year('daily_treasury_real_yield_curve', year)
-        nominal_rows.extend(nrows)
-        real_rows.extend(rrows)
-        for r in nrows[:3]:
-            discovered['nominal'].update(r.keys())
-        for r in rrows[:3]:
-            discovered['real'].update(r.keys())
+        nominal_rows.extend(_fetch_year('daily_treasury_yield_curve', year))
+        real_rows.extend(_fetch_year('daily_treasury_real_yield_curve', year))
 
     nominal = _to_frame(nominal_rows, 'nominal')
     real = _to_frame(real_rows, 'real')
     merged = nominal.merge(real, on='date', how='outer').sort_values('date')
-    merged = merged[(merged['date'] >= FORMAL_START) & (merged['date'] <= FORMAL_END)]
+    merged = merged[(merged['date'] >= FORMAL_START) & (merged['date'] <= FORMAL_END)].copy()
     merged['t5yie_candidate'] = merged['nominal_5y'] - merged['real_5y']
+    return merged
+
+
+def main() -> int:
+    discovered = {'nominal': set(), 'real': set()}
+    # Discovery is kept separate from the reusable fetch helper so the probe artifact
+    # retains explicit field evidence without changing formal source semantics.
+    nrows = _fetch_year('daily_treasury_yield_curve', FORMAL_START.year)
+    rrows = _fetch_year('daily_treasury_real_yield_curve', FORMAL_START.year)
+    for r in nrows[:3]:
+        discovered['nominal'].update(r.keys())
+    for r in rrows[:3]:
+        discovered['real'].update(r.keys())
+
+    merged = fetch_treasury_rate_components()
 
     def summary(col: str) -> dict:
         x = merged[['date', col]].dropna()
