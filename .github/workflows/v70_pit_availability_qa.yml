@@ -1,0 +1,33 @@
+name: V70.2 PIT Availability QA
+
+on:
+  push:
+    paths:
+      - 'v70_pit_availability_qa.py'
+      - 'v70_treasury_tga_paged.py'
+      - 'v70_fed_board_h41_probe.py'
+      - 'v70_nyfed_rrp_probe.py'
+      - 'v70_treasury_rates_probe.py'
+      - 'v70_sahm_official_probe.py'
+      - 'data/official_snapshots/SAHMREALTIME_2005_2026-08.csv'
+      - 'data/official_snapshots/SAHMREALTIME_2005_2026-08.meta.json'
+      - '.github/workflows/v70_pit_availability_qa.yml'
+  workflow_dispatch:
+
+jobs:
+  pit-availability-qa:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas requests
+      - name: Run PIT and availability hard-gate diagnostics
+        run: python v70_pit_availability_qa.py
+      - name: Upload PIT QA artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v70-pit-availability-qa
+          path: v70_pit_availability_qa_output/pit_availability_qa.json
