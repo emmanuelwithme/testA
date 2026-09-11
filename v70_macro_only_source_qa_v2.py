@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-import v70_macro_only_source_qa as base
+from v70_treasury_tga_paged import fetch_tga_paged
 from v70_fed_board_h41_probe import fetch_h41_total_assets
 from v70_nyfed_rrp_probe import fetch_rrp_operations
 from v70_treasury_rates_probe import fetch_treasury_rate_components
@@ -37,9 +37,8 @@ def _fail(logical_input: str, source: str, exc: Exception) -> dict:
 def main() -> int:
     rows: list[dict] = []
 
-    # TGA: use the already validated U.S. Treasury DTS transport directly.
     try:
-        s = base.treasury_tga()
+        s = fetch_tga_paged()
         rows.append({
             'logical_input': 'TGA',
             'series_id': 'DTS_OPERATING_CASH_BALANCE_TGA',
@@ -50,12 +49,11 @@ def main() -> int:
             'n': int(len(s)),
             'conversion': 'million_usd_to_bn',
             'formal_pit_ready': False,
-            'pit_note': 'Official Treasury raw source retrieved; formal use still requires publication/availability-date mapping, coverage and unit QA.',
+            'pit_note': 'Official Treasury paginated raw source retrieved; formal use still requires publication/availability-date mapping, coverage and unit QA.',
         })
     except Exception as exc:
         rows.append(_fail('TGA', 'U.S. Treasury Fiscal Data', exc))
 
-    # WALCL equivalent underlying Board H.4.1 line item.
     try:
         s = fetch_h41_total_assets()
         rows.append({
@@ -73,7 +71,6 @@ def main() -> int:
     except Exception as exc:
         rows.append(_fail('WALCL', 'Federal Reserve Board H.4.1', exc))
 
-    # NY Fed reverse repo operations.
     try:
         operations = fetch_rrp_operations()
         dates = [r.get('operationDate') for r in operations if r.get('operationDate')]
@@ -92,7 +89,6 @@ def main() -> int:
     except Exception as exc:
         rows.append(_fail('RRP', 'Federal Reserve Bank of New York Markets Data API', exc))
 
-    # Treasury nominal/real curve components for 5Y breakeven candidate and real 10Y.
     try:
         rates = fetch_treasury_rate_components()
         x = rates[['date', 't5yie_candidate']].dropna()
@@ -125,8 +121,6 @@ def main() -> int:
         rows.append(_fail('5Y_BREAKEVEN', 'U.S. Treasury Daily Interest Rate XML Feed', exc))
         rows.append(_fail('REAL_10Y', 'U.S. Treasury Daily Real Yield Curve XML Feed', exc))
 
-    # Deterministic same-series FRED snapshot. attempts=0 intentionally skips the
-    # known runner transport timeouts; the snapshot is hash-pinned and provenance-checked.
     try:
         s, transport, provenance = fetch_sahm_official(attempts=0)
         status = (
