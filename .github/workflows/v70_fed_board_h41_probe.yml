@@ -1,0 +1,23 @@
+name: V70.2 Fed Board H41 Probe
+
+on:
+  push:
+    paths:
+      - 'v70_fed_board_h41_probe.py'
+      - '.github/workflows/v70_fed_board_h41_probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  h41-probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas requests
+      - name: Probe official Fed Board H41 transport
+        run: python v70_fed_board_h41_probe.py
