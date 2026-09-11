@@ -1,0 +1,28 @@
+name: V70.2 Macro-only Source QA v2
+
+on:
+  push:
+    paths:
+      - 'v70_macro_only_source_qa_v2.py'
+      - 'v70_macro_only_source_qa.py'
+      - 'v70_fed_board_h41_probe.py'
+      - '.github/workflows/v70_macro_only_source_qa_v2.yml'
+  workflow_dispatch:
+
+jobs:
+  official-source-qa-v2:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas requests
+      - name: Run integrated official-source QA
+        run: python v70_macro_only_source_qa_v2.py
+      - name: Upload source QA artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v70-macro-source-qa-v2
+          path: v70_macro_source_qa_output/source_qa.json
