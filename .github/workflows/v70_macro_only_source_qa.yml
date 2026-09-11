@@ -18,6 +18,23 @@ jobs:
       - run: pip install pandas requests
       - name: Run official-source QA
         run: python v70_macro_only_source_qa.py
+      - name: Enforce required raw-source completeness
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path('v70_macro_source_qa_output/source_qa.json')
+          report = json.loads(p.read_text(encoding='utf-8'))
+          failed = [
+              row for row in report.get('source_rows', [])
+              if row.get('status') not in {'RAW_SOURCE_OK', 'RAW_SOURCE_OK_OFFICIAL_FALLBACK'}
+          ]
+          if failed:
+              names = ', '.join(f"{r.get('logical_input')}={r.get('status')}" for r in failed)
+              raise SystemExit(f'REQUIRED_RAW_SOURCE_QA_INCOMPLETE: {names}')
+          print('Required raw official-source transport QA complete.')
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
