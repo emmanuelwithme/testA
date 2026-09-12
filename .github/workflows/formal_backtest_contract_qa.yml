@@ -5,9 +5,11 @@ on:
   push:
     branches: [ master ]
     paths:
+      - 'backtest_33_models_v2.py'
       - 'investment_backtest.py'
       - '.github/workflows/formal_backtest.yml'
       - 'formal_candidate_universe_lock.json'
+      - 'validate_formal_candidate_universe.py'
       - 'formal_backtest_contract_qa.py'
       - '.github/workflows/formal_backtest_contract_qa.yml'
 
