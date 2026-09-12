@@ -11,10 +11,11 @@ REQUIRED_TOP_LEVEL = {
     'scope_notes',
 }
 
-EXPECTED = {
+EXPECTED_CORE = {
     'equity': ['VT', 'VOO', 'QQQ', '0050', 'SOXX', 'PPH', 'NATO'],
     'us_bond': ['SGOV', 'SHY', 'IEF', 'SPIB'],
 }
+EXPECTED_TAIWAN_BOND = ['00859B', '00719B', '00860B']
 
 
 def fail(msg: str) -> None:
@@ -50,26 +51,46 @@ def main() -> None:
             fail(f'governance mismatch {key}: {gov.get(key)!r} != {expected!r}')
 
     pools = data['generic_priority_candidate_pools']
-    if set(pools) != set(EXPECTED):
-        fail(f'candidate pool keys mismatch: {sorted(pools)}')
-    for name, expected in EXPECTED.items():
+    allowed_keys = set(EXPECTED_CORE) | {'taiwan_retirement_bond'}
+    if not set(EXPECTED_CORE).issubset(pools):
+        fail(f'missing required candidate pool keys: {sorted(set(EXPECTED_CORE) - set(pools))}')
+    if not set(pools).issubset(allowed_keys):
+        fail(f'unexpected candidate pool keys: {sorted(set(pools) - allowed_keys)}')
+
+    for name, expected in EXPECTED_CORE.items():
         actual = pools.get(name)
         if actual != expected:
             fail(f'{name} candidate order/content mismatch: {actual!r} != {expected!r}')
         if len(actual) != len(set(actual)):
             fail(f'duplicate candidates in {name}')
 
-    forbidden_equity = {'TLT', 'SPLB', 'SPSB', 'SHY', 'IEF', 'SPIB', 'SGOV'}
+    if 'taiwan_retirement_bond' in pools:
+        actual = pools['taiwan_retirement_bond']
+        if actual != EXPECTED_TAIWAN_BOND:
+            fail(f'taiwan_retirement_bond mismatch: {actual!r} != {EXPECTED_TAIWAN_BOND!r}')
+        if len(actual) != len(set(actual)):
+            fail('duplicate candidates in taiwan_retirement_bond')
+
+    forbidden_equity = {'TLT', 'SPLB', 'SPSB', 'SHY', 'IEF', 'SPIB', 'SGOV', '00859B', '00719B', '00860B'}
     forbidden_bond = {'VT', 'VOO', 'QQQ', '0050', 'SOXX', 'PPH', 'NATO'}
     if forbidden_equity.intersection(pools['equity']):
         fail('bond instruments leaked into equity candidate pool')
     if forbidden_bond.intersection(pools['us_bond']):
-        fail('equity instruments leaked into bond candidate pool')
+        fail('equity instruments leaked into US bond candidate pool')
+    if 'taiwan_retirement_bond' in pools and forbidden_bond.intersection(pools['taiwan_retirement_bond']):
+        fail('equity instruments leaked into Taiwan retirement bond candidate pool')
+
+    parking = data.get('asset_roles', {}).get('parking_assets', ['SGOV'])
+    if 'SGOV' not in parking:
+        fail('SGOV must remain a parking asset under V70.2 governance')
 
     print('FORMAL_CANDIDATE_UNIVERSE_QA_PASS')
     print('Mentor snapshot:', src.get('source_last_modified_taipei'))
     print('Equity candidates:', ','.join(pools['equity']))
     print('US bond candidates:', ','.join(pools['us_bond']))
+    if 'taiwan_retirement_bond' in pools:
+        print('Taiwan retirement bond candidates:', ','.join(pools['taiwan_retirement_bond']))
+    print('Parking assets:', ','.join(parking))
     print('Governance: Mentor -> candidate universe; V82/BondV75 -> execution; V70.2 -> bucket caps')
 
 
