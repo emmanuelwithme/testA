@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install --disable-pip-version-check numpy pandas requests yfinance
+        run: pip install --disable-pip-version-check numpy pandas scipy requests yfinance
       - name: Run Mentor-governed benchmark engine
         run: python formal_benchmark_engine_v3.py
       - name: Show run status
