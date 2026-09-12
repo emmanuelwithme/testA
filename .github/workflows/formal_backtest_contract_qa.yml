@@ -5,6 +5,7 @@ on:
   push:
     branches: [ master ]
     paths:
+      - 'formal_benchmark_engine_v3.py'
       - 'backtest_33_models_v2.py'
       - 'investment_backtest.py'
       - '.github/workflows/formal_backtest.yml'
