@@ -1,0 +1,34 @@
+name: Formal Backtest Contract QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - 'investment_backtest.py'
+      - '.github/workflows/formal_backtest.yml'
+      - 'formal_candidate_universe_lock.json'
+      - 'formal_backtest_contract_qa.py'
+      - '.github/workflows/formal_backtest_contract_qa.yml'
+
+jobs:
+  contract-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate candidate-universe lock
+        run: python validate_formal_candidate_universe.py
+      - name: Evaluate formal backtest contract readiness
+        run: python formal_backtest_contract_qa.py
+      - name: Show readiness status
+        run: cat formal_backtest_contract_status.json
+      - name: Upload readiness artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: formal-backtest-contract-status
+          path: formal_backtest_contract_status.json
+          if-no-files-found: error
