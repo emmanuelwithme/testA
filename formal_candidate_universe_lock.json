@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "source_of_truth": {
+    "file": "Mentor.md",
+    "drive_file_id": "1NSZKhiYEWNdfqV0taONS_uaoLgS7ES6T",
+    "source_last_modified_taipei": "2026-09-12 14:19",
+    "captured_for_backtest_qa_taipei": "2026-09-12",
+    "authority": "candidate_universe_only"
+  },
+  "governance": {
+    "equity_execution_rule": "V82.md",
+    "bond_execution_rule": "債券V75.md",
+    "backtest_design_rule": "母規則回測.md",
+    "upper_allocator_rule": "V70_2缺估值白皮書.md",
+    "unused_capital_destination": "SGOV_or_formal_short_bond_parking_pool",
+    "unused_bucket_capacity_may_cross_buckets": false
+  },
+  "generic_priority_candidate_pools": {
+    "equity": [
+      "VT",
+      "VOO",
+      "QQQ",
+      "0050",
+      "SOXX",
+      "PPH",
+      "NATO"
+    ],
+    "us_bond": [
+      "SGOV",
+      "SHY",
+      "IEF",
+      "SPIB"
+    ]
+  },
+  "scope_notes": [
+    "These are Mentor.md generic priority research candidates, not mandatory holdings or fixed weights.",
+    "Client-specific existing/preferred assets are outside the mother-rule candidate lock unless separately version-locked for a client backtest.",
+    "V82.md and 債券V75.md must not be used as candidate-universe sources.",
+    "This lock records the Mentor snapshot for reproducibility; it does not modify Mentor, V82, 債券V75, 母規則回測, or V70.2 rules."
+  ]
+}
