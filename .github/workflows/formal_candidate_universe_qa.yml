@@ -1,0 +1,28 @@
+name: Formal Candidate Universe QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - 'formal_candidate_universe_lock.json'
+      - 'validate_formal_candidate_universe.py'
+      - '.github/workflows/formal_candidate_universe_qa.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate Mentor candidate universe contract
+        run: python validate_formal_candidate_universe.py
+      - name: Upload candidate-universe lock
+        uses: actions/upload-artifact@v4
+        with:
+          name: formal-candidate-universe-lock
+          path: formal_candidate_universe_lock.json
+          if-no-files-found: error
