@@ -1,0 +1,32 @@
+name: Formal Benchmark Engine V3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - 'formal_benchmark_engine_v3.py'
+      - 'backtest_33_models_v2.py'
+      - '.github/workflows/formal_benchmark_v3.yml'
+
+jobs:
+  benchmark-v3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check numpy pandas requests yfinance
+      - name: Run Mentor-governed benchmark engine
+        run: python formal_benchmark_engine_v3.py
+      - name: Show run status
+        run: cat formal_benchmark_v3_output/run_status.json
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: formal-benchmark-v3-output
+          path: formal_benchmark_v3_output/
+          if-no-files-found: error
