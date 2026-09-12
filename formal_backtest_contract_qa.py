@@ -10,7 +10,7 @@ OUT = Path('formal_backtest_contract_status.json')
 
 
 def extract_const(text: str, name: str):
-    m = re.search(rf"^{re.escape(name)}\s*=\s*['\"]([^'\"]+)['\"]", text, flags=re.M)
+    m = re.search(rf"(?:^|[;\n])\s*{re.escape(name)}\s*=\s*['\"]([^'\"]+)['\"]", text)
     return m.group(1) if m else None
 
 
@@ -111,9 +111,6 @@ def main():
         'recovery_output': contains_any(engine, ['recovery']),
     }
 
-    # The old formal_backtest.yml is intentionally treated as legacy while it still
-    # hard-restricts 2019-2026-08-26. A green legacy workflow never authorizes a
-    # formal conclusion. Readiness is driven by the current engine plus the full contract.
     readiness_checks = {k: v for k, v in checks.items() if k != 'legacy_workflow_not_formal_authority'}
     status = {
         'schema_version': 2,
