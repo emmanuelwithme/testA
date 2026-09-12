@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source_of_truth": {
     "file": "Mentor.md",
     "drive_file_id": "1NSZKhiYEWNdfqV0taONS_uaoLgS7ES6T",
@@ -30,10 +30,22 @@
       "SHY",
       "IEF",
       "SPIB"
+    ],
+    "taiwan_retirement_bond": [
+      "00859B",
+      "00719B",
+      "00860B"
     ]
+  },
+  "asset_roles": {
+    "parking_assets": ["SGOV"],
+    "us_bond_risk_assets_for_equal_weight_benchmark": ["SHY", "IEF", "SPIB"],
+    "taiwan_retirement_cashflow_candidates": ["00859B", "00719B", "00860B"]
   },
   "scope_notes": [
     "These are Mentor.md generic priority research candidates, not mandatory holdings or fixed weights.",
+    "The US and Taiwan retirement bond candidate pools are distinct research universes; do not merge them mechanically into one client portfolio.",
+    "SGOV is present in the US bond candidate pool but retains its V70.2 role as the formal parking asset; it is excluded from risky equal-weight denominators unless a separately locked experiment explicitly tests SGOV as an investable bond candidate.",
     "Client-specific existing/preferred assets are outside the mother-rule candidate lock unless separately version-locked for a client backtest.",
     "V82.md and 債券V75.md must not be used as candidate-universe sources.",
     "This lock records the Mentor snapshot for reproducibility; it does not modify Mentor, V82, 債券V75, 母規則回測, or V70.2 rules."
