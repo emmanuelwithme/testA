@@ -178,7 +178,9 @@ def main():
     if len(bad_capital):
         raise RuntimeError('Capital conservation QA failed')
 
-    print(df[['model', 'status', 'ending_asset_twd', 'xirr_mwr', 'twr_cagr', 'unitized_mdd']].to_string(index=False))
+    preferred_cols = ['model', 'status', 'ending_asset_twd', 'xirr_mwr', 'twr_cagr', 'unitized_mdd']
+    printable_cols = [c for c in preferred_cols if c in df.columns]
+    print(df[printable_cols].to_string(index=False))
     print(json.dumps(status, ensure_ascii=False))
 
 
