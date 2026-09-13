@@ -1,53 +1,52 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "source_of_truth": {
     "file": "Mentor.md",
-    "drive_file_id": "1NSZKhiYEWNdfqV0taONS_uaoLgS7ES6T",
-    "source_last_modified_taipei": "2026-09-13 05:16",
+    "drive_file_id": "1oeiito_HRs10w50YjqImIfir8R2qdBdw",
+    "source_version": "v3.0.0",
+    "source_last_modified_taipei": "2026-09-13 13:07",
     "captured_for_backtest_qa_taipei": "2026-09-13",
-    "authority": "candidate_universe_only"
+    "authority": "candidate_universe_and_target_roles"
   },
   "governance": {
     "equity_execution_rule": "V82.md",
     "bond_execution_rule": "債券V75.md",
     "backtest_design_rule": "母規則回測.md",
     "upper_allocator_rule": "V70_2缺估值白皮書.md",
-    "unused_capital_destination": "SGOV_or_formal_short_bond_parking_pool",
+    "unused_capital_destination": "SGOV_DRY_POWDER_BUCKET_or_formal_short_bond_parking_pool",
     "unused_bucket_capacity_may_cross_buckets": false
   },
   "generic_priority_candidate_pools": {
-    "equity": [
-      "VT",
-      "VOO",
-      "QQQ",
-      "0050",
-      "SOXX",
-      "PPH",
-      "NATO"
-    ],
-    "us_bond": [
-      "SGOV",
-      "SHY",
-      "IEF",
-      "SPIB"
-    ],
-    "taiwan_retirement_bond": [
-      "00859B",
-      "00719B",
-      "00860B"
-    ]
+    "equity": ["VT", "VOO", "QQQ", "0050", "SOXX", "PPH", "NATO"],
+    "us_bond_core": ["SGOV_BOND_BUCKET", "SPSB", "BNDW"],
+    "taiwan_bond_core": ["00859B", "00860B"]
+  },
+  "target_weights_within_subbucket": {
+    "us_bond_core": {
+      "SGOV_BOND_BUCKET": 0.50,
+      "SPSB": 0.35,
+      "BNDW": 0.15
+    },
+    "taiwan_bond_core": {
+      "00859B": 0.80,
+      "00860B": 0.20
+    }
   },
   "asset_roles": {
-    "parking_assets": ["SGOV"],
-    "us_bond_risk_assets_for_equal_weight_benchmark": ["SHY", "IEF", "SPIB"],
-    "taiwan_retirement_cashflow_candidates": ["00859B", "00719B", "00860B"]
+    "parking_assets": ["SGOV_DRY_POWDER_BUCKET"],
+    "parking_ticker": "SGOV",
+    "bond_bucket_sgov_logical_asset": "SGOV_BOND_BUCKET",
+    "bond_bucket_sgov_ticker": "SGOV",
+    "us_bond_core_assets": ["SGOV_BOND_BUCKET", "SPSB", "BNDW"],
+    "taiwan_bond_core_assets": ["00859B", "00860B"],
+    "legacy_research_or_existing_holding_only": ["00719B", "SHY", "IEF", "SPIB", "TLT", "SPLB"]
   },
   "scope_notes": [
-    "These are Mentor.md generic priority research candidates, not mandatory holdings or fixed weights.",
-    "The US and Taiwan retirement bond candidate pools are distinct research universes; do not merge them mechanically into one client portfolio.",
-    "SGOV is present in the US bond candidate pool but retains its V70.2 role as the formal parking asset; it is excluded from risky equal-weight denominators unless a separately locked experiment explicitly tests SGOV as an investable bond candidate.",
-    "Client-specific existing/preferred assets are outside the mother-rule candidate lock unless separately version-locked for a client backtest.",
-    "V82.md and 債券V75.md must not be used as candidate-universe sources.",
-    "This lock records the Mentor snapshot for reproducibility; it does not modify Mentor, V82, 債券V75, 母規則回測, or V70.2 rules."
+    "Mentor.md v3.0.0 owns candidate universes and long-term target roles. V82 and BondV75 do not own the candidate universe.",
+    "SGOV has two accounting roles that must remain distinct: SGOV_BOND_BUCKET is formal bond allocation; SGOV_DRY_POWDER_BUCKET is unallocated/stock-waiting liquidity. They may share ticker SGOV but must never be double-counted or freely transferred across roles.",
+    "The US bond subbucket target is SGOV 50% / SPSB 35% / BNDW 15%; the Taiwan bond subbucket target is 00859B 80% / 00860B 20%.",
+    "00719B, SHY, IEF, SPIB, TLT and SPLB remain valid for research or existing-holding management but are paused as generic new-allocation core candidates.",
+    "Client-specific existing/preferred assets remain outside the generic mother-rule lock unless separately version-locked for a client backtest.",
+    "This lock records the Mentor snapshot for reproducibility; it does not modify Mentor, V82, BondV75, mother backtest rules, or V70.2."
   ]
 }
