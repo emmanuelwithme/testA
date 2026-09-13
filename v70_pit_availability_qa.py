@@ -29,10 +29,9 @@ def _coverage(first, last, n):
 def main() -> int:
     rows = []
 
-    # TGA: official raw source is now complete through the formal end, but the
-    # available Fiscal Data series begins in 2005-10. The locked V70.2 whitepaper
-    # says genuinely unavailable PIT data must remain NA / Insufficient Data; it
-    # must not be backfilled or imputed.
+    # Current formal architecture: Mentor v3.6 owns S0/B0; V70_2.html is the
+    # executable tactical allocator and V70_16白皮書.md is its explanatory SOT.
+    # Missing historical PIT values remain NA / Insufficient Data; never backfill.
     tga = fetch_tga_paged()
     rows.append({
         'logical_input': 'TGA',
@@ -47,10 +46,6 @@ def main() -> int:
         ],
     })
 
-    # H.4.1: official Federal Reserve documentation states Thursday release,
-    # generally 4:30 p.m.; the underlying observation is Wednesday level. This
-    # establishes the release convention, but exact holiday-shifted release dates
-    # still need a historical calendar mapper before formal PIT use.
     walcl = fetch_h41_total_assets()
     rows.append({
         'logical_input': 'WALCL',
@@ -62,15 +57,10 @@ def main() -> int:
         'formal_pit_ready': False,
         'blockers': [
             'historical release-date calendar including holiday shifts not yet mapped',
-            'exact equivalence QA to locked WALCL semantics not yet completed',
+            'exact equivalence QA to V70_2 WALCL semantics not yet completed',
         ],
     })
 
-    # NY Fed publishes RRP result summaries after completion of each operation.
-    # For backtest execution we will not use the result before it existed. The
-    # historical official operation API begins in 2007 in the current transport;
-    # earlier formal-window weeks therefore remain NA unless a separate official
-    # archival source is validated.
     operations = fetch_rrp_operations()
     dates = [r.get('operationDate') for r in operations if r.get('operationDate')]
     first_rrp = min(dates) if dates else None
@@ -81,13 +71,13 @@ def main() -> int:
         **_coverage(first_rrp, last_rrp, len(operations)),
         'verified_release_convention': 'summary results are published after completion of each reverse repo operation',
         'evidence_url': 'https://www.newyorkfed.org/markets/rrp_faq/rrp-faq-archive/rrp-faq-230726',
-        'availability_mapping': 'OPERATION_DATE_RESULTS_KNOWN_AFTER_OPERATION; FORMAL EXECUTION MAPPER NOT YET LOCKED',
+        'availability_mapping': 'OPERATION_DATE_RESULTS_KNOWN_AFTER_OPERATION; FORMAL EXECUTION MAPPER NOT_YET_LOCKED',
         'coverage_before_first_observation': 'NA_ONLY_NO_BACKFILL',
         'formal_pit_ready': False,
         'blockers': [
             'formal execution-time mapper not yet locked to operation result publication time',
             '2005-01-01..2007-04-25 has no observation in current official operation API and must remain NA unless archival official data is validated',
-            'field/unit equivalence of totalAmtAccepted to locked RRP definition still requires explicit QA',
+            'field/unit equivalence of totalAmtAccepted to V70_2 RRP definition still requires explicit QA',
         ],
     })
 
@@ -102,7 +92,7 @@ def main() -> int:
         'availability_mapping': 'CONSERVATIVE_T_PLUS_1_NOT_YET_FORMALLY_LOCKED',
         'formal_pit_ready': False,
         'blockers': [
-            'exact equivalence QA to locked T5YIE semantics is not complete',
+            'exact equivalence QA to V70_2 5Y breakeven semantics is not complete',
             'official publication availability timing has not yet been machine-verified for full history',
         ],
     })
@@ -114,7 +104,7 @@ def main() -> int:
         'availability_mapping': 'CONSERVATIVE_T_PLUS_1_NOT_YET_FORMALLY_LOCKED',
         'formal_pit_ready': False,
         'blockers': [
-            'exact equivalence QA to locked DFII10 semantics is not complete',
+            'exact equivalence QA to V70_2 real-10Y semantics is not complete',
             'official publication availability timing has not yet been machine-verified for full history',
         ],
     })
@@ -127,7 +117,7 @@ def main() -> int:
         **_coverage(sahm.index.min(), sahm.index.max(), len(sahm)),
         'transport': transport,
         'missing_values': missing_values,
-        'availability_mapping': 'OBSERVATION_SERIES_ONLY; HISTORICAL RELEASE_DATES_NOT_YET_MAPPED',
+        'availability_mapping': 'OBSERVATION_SERIES_ONLY; HISTORICAL_RELEASE_DATES_NOT_YET_MAPPED',
         'formal_pit_ready': False,
         'blockers': [
             'historical release availability dates must be mapped before weekly PIT use',
@@ -137,14 +127,16 @@ def main() -> int:
 
     unresolved = [r['logical_input'] for r in rows if not r.get('formal_pit_ready')]
     report = {
-        'candidate': 'V70.2 Macro-only Weekly Candidate',
+        'architecture': 'Mentor v3.6 S0/B0 -> V70_2 tactical C/T total budgets -> V82/BondV75 security execution',
+        'v70_executable_source': 'V70_2.html',
+        'v70_explanatory_source': 'V70_16白皮書.md',
         'formal_window': '2005-01-01..2026-08-31',
         'policy': {
             'point_in_time_only': True,
             'no_future_fill': True,
             'no_neutral_imputation': True,
-            'missing_before_first_valid_pit': 'NA / Insufficient Data per locked V70.2 whitepaper',
-            'same_day_close_signal_execution': 'T+1 per locked mother backtest rule',
+            'missing_before_first_valid_pit': 'NA / Insufficient Data',
+            'same_day_close_signal_execution': 'T+1 required by user-explicit formal backtest contract; standalone 母規則回測.md currently unresolved in Drive root',
         },
         'rows': rows,
         'formal_pit_ready_count': sum(bool(r.get('formal_pit_ready')) for r in rows),
@@ -152,7 +144,7 @@ def main() -> int:
         'formal_pit_unresolved': unresolved,
         'formal_backtest_ready': False,
         'qa_status': 'DIAGNOSTIC_COMPLETE_FORMAL_PIT_BLOCKED',
-        'qa_note': 'This workflow is a hard-gate diagnostic. It does not alter V82, Bond V75, or V70.2 rules and does not invent missing observations. Raw-source 6/6 success is necessary but not sufficient for formal backtest readiness.',
+        'qa_note': 'Hard-gate diagnostic only. It changes no strategy rule and invents no missing observations. Raw-source availability is necessary but not sufficient for formal PIT/T+1 readiness.',
     }
     REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(report, ensure_ascii=False, indent=2))
