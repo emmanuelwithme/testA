@@ -8,30 +8,30 @@ import pandas as pd
 
 import backtest_33_models_v2 as base
 
-# Mentor.md is the candidate-universe source of truth.
-# V82.md / 債券V75.md remain the execution-rule sources; this file only builds
-# the mechanical B&H/DCA benchmark layers while Case 1 remains blocked until
-# the complete PIT/T+1 dynamic rule-engine pipeline is available.
+# Mentor.md owns candidate universes and long-term target roles.
+# V82.md owns equity execution; 債券V75.md owns bond execution.
+# This module is still the mechanical benchmark layer only. Case 1 remains
+# blocked until the complete PIT/T+1 dynamic execution pipeline exists.
 STOCKS = {
-    'VT': 'VT',
-    'VOO': 'VOO',
-    'QQQ': 'QQQ',
-    '0050': '0050.TW',
-    'SOXX': 'SOXX',
-    'PPH': 'PPH',
-    'NATO': 'NATO.L',
+    'VT': 'VT', 'VOO': 'VOO', 'QQQ': 'QQQ', '0050': '0050.TW',
+    'SOXX': 'SOXX', 'PPH': 'PPH', 'NATO': 'NATO.L',
 }
+# SGOV has two distinct logical roles that share the same ticker. The bond-bucket
+# role below is investable inside the formal US bond subbucket. Unused capital is
+# separately represented by PARKING_ASSET and must never be double-counted.
 BONDS = {
-    'SHY': 'SHY',
-    'IEF': 'IEF',
-    'SPIB': 'SPIB',
+    'SGOV_BOND_BUCKET': 'SGOV',
+    'SPSB': 'SPSB',
+    'BNDW': 'BNDW',
 }
+US_BOND_TARGET_WEIGHTS = {'SGOV_BOND_BUCKET': 0.50, 'SPSB': 0.35, 'BNDW': 0.15}
+TAIWAN_BOND_CORE = {'00859B': 0.80, '00860B': 0.20}
 RISK = {**STOCKS, **BONDS}
-PARKING_ASSET = 'SGOV'
+PARKING_ASSET = 'SGOV_DRY_POWDER_BUCKET'
+PARKING_TICKER = 'SGOV'
 OUT = Path('formal_benchmark_v3_output')
 OUT.mkdir(exist_ok=True)
 
-# Keep the imported mechanical benchmark helpers on the same formal universe.
 base.STOCKS = STOCKS
 base.BONDS = BONDS
 base.RISK = RISK
@@ -39,18 +39,8 @@ base.OUT = OUT
 
 
 def capital_conservation_check(model: str, res: dict | None) -> dict:
-    """Verify daily NAV identity for mechanical benchmark portfolios.
-
-    The benchmark simulator has no leverage or borrowing. Daily NAV must equal
-    risk-asset market value plus the SGOV/formal-short-bond parking balance.
-    """
     if not res:
-        return {
-            'model': model,
-            'status': 'N/A',
-            'max_abs_nav_identity_error_twd': np.nan,
-            'capital_conservation_pass': False,
-        }
+        return {'model': model, 'status': 'N/A', 'max_abs_nav_identity_error_twd': np.nan, 'capital_conservation_pass': False}
     nav = res['nav']
     errors = []
     for i, (_, _, parking_weight, vals) in enumerate(res['exps']):
@@ -60,32 +50,19 @@ def capital_conservation_check(model: str, res: dict | None) -> dict:
         errors.append(abs(n - risk_value - parking_value))
     max_error = float(max(errors)) if errors else 0.0
     tolerance = max(0.01, float(nav.max()) * 1e-10)
-    return {
-        'model': model,
-        'status': 'OK',
-        'max_abs_nav_identity_error_twd': max_error,
-        'tolerance_twd': tolerance,
-        'capital_conservation_pass': bool(max_error <= tolerance),
-    }
+    return {'model': model, 'status': 'OK', 'max_abs_nav_identity_error_twd': max_error,
+            'tolerance_twd': tolerance, 'capital_conservation_pass': bool(max_error <= tolerance)}
 
 
 def main():
     p, fx = base.prices_twd()
-    park = base.parking_index(fx)
-    rows = []
-    results = {}
+    park = base.parking_index(fx)  # physical SGOV used for dry-powder parking only
+    rows, results = [], {}
 
-    # V70.2 owns the upper stock/bond/parking bucket caps. V82 owns stock
-    # execution and Bond V75 owns bond execution. The two risk buckets cannot
-    # borrow each other's unused allowance; unused capital remains parked.
-    # Latest V82 now directly owns a fixed cumulative deployment ladder
-    # (10/20/30/45/60/75/85/95/100% of project target position), so missing
-    # deployment calibration is no longer a blocker. Case 1 remains blocked
-    # only until the full dynamic engines and complete PIT/T+1 inputs exist.
     rows.append({
         'model': 'Case1_V82_plus_BondV75_dynamic_common_pool',
         'status': 'BLOCKED_MISSING_COMPLETE_PIT_T1_DYNAMIC_EXECUTION_PIPELINE',
-        'reason': 'V70.2 bucket governance and the formal V82 deployment ladder are resolved. The remaining blocker is implementation of the complete V82/BondV75 dynamic execution pipeline with complete PIT/T+1 inputs. No artificial rule or proxy is inserted.',
+        'reason': 'Mentor v3.0 candidate roles, V70.2 bucket governance and V82 deployment ladder are resolved. Remaining blocker is complete PIT/T+1 dynamic V82/BondV75 execution. No artificial rule or proxy is inserted.',
     })
 
     specs = []
@@ -102,11 +79,8 @@ def main():
 
     for name, assets, mode in specs:
         row, res = base.simulate(name, assets, mode, p, park)
-        rows.append(row)
-        results[name] = res
+        rows.append(row); results[name] = res
 
-    # 7 equity + 3 US risk-bond candidates => 10 risk assets.
-    # Dynamic Case 1 + benchmark cases = 32 model rows.
     expected_models = 1 + len(RISK) + 1 + len(RISK) + 1 + 1 + len(STOCKS) + 1
     df = pd.DataFrame(rows)
     if len(df) != expected_models:
@@ -120,49 +94,35 @@ def main():
     adf = pd.DataFrame(annual)
     adf.to_csv(OUT / 'annual_risk_by_model.csv', index=False)
     if not adf.empty:
-        pd.DataFrame([base.cross_year(m, g) for m, g in adf.groupby('model')]).to_csv(
-            OUT / 'cross_year_risk_summary.csv', index=False
-        )
-        adf[adf.year.isin([2008, 2020, 2022])].to_csv(
-            OUT / 'stress_2008_2020_2022.csv', index=False
-        )
+        pd.DataFrame([base.cross_year(m, g) for m, g in adf.groupby('model')]).to_csv(OUT / 'cross_year_risk_summary.csv', index=False)
+        adf[adf.year.isin([2008, 2020, 2022])].to_csv(OUT / 'stress_2008_2020_2022.csv', index=False)
 
-    audit = [
-        {
-            'asset': a,
-            'first_valid': str(s.index.min().date()) if len(s) else None,
-            'last_valid': str(s.index.max().date()) if len(s) else None,
-            'n_obs': len(s),
-        }
-        for a, s in p.items()
-    ]
+    audit = [{'asset': a, 'ticker': RISK[a], 'first_valid': str(s.index.min().date()) if len(s) else None,
+              'last_valid': str(s.index.max().date()) if len(s) else None, 'n_obs': len(s)} for a, s in p.items()]
     pd.DataFrame(audit).to_csv(OUT / 'data_audit.csv', index=False)
 
     if not adf.empty:
-        annual_contribution_qa = (
-            adf.groupby(['model', 'year']).external_contribution_twd.sum().reset_index()
-        )
-        bad_contrib = annual_contribution_qa[
-            annual_contribution_qa.external_contribution_twd > base.ANNUAL + 0.01
-        ]
+        annual_contribution_qa = adf.groupby(['model', 'year']).external_contribution_twd.sum().reset_index()
+        bad_contrib = annual_contribution_qa[annual_contribution_qa.external_contribution_twd > base.ANNUAL + 0.01]
     else:
-        annual_contribution_qa = pd.DataFrame()
-        bad_contrib = pd.DataFrame()
+        annual_contribution_qa = pd.DataFrame(); bad_contrib = pd.DataFrame()
     annual_contribution_qa.to_csv(OUT / 'annual_contribution_qa.csv', index=False)
 
-    capital_rows = [capital_conservation_check(name, res) for name, res in results.items()]
-    capital_df = pd.DataFrame(capital_rows)
+    capital_df = pd.DataFrame([capital_conservation_check(name, res) for name, res in results.items()])
     capital_df.to_csv(OUT / 'capital_conservation_qa.csv', index=False)
-    bad_capital = capital_df[
-        (capital_df.status == 'OK') & (~capital_df.capital_conservation_pass)
-    ]
+    bad_capital = capital_df[(capital_df.status == 'OK') & (~capital_df.capital_conservation_pass)]
 
     status = {
         'engine': 'formal_benchmark_engine_v3',
+        'mentor_version': 'v3.0.0',
         'formal_window': '2005-01-01..2026-08-31',
         'mentor_equity_candidates': list(STOCKS),
-        'mentor_us_risk_bond_candidates': list(BONDS),
-        'parking_asset': PARKING_ASSET,
+        'mentor_us_bond_core_logical_assets': list(BONDS),
+        'mentor_us_bond_target_weights': US_BOND_TARGET_WEIGHTS,
+        'mentor_taiwan_bond_core': TAIWAN_BOND_CORE,
+        'parking_asset_logical_role': PARKING_ASSET,
+        'parking_ticker': PARKING_TICKER,
+        'sgov_dual_role_separated': True,
         'v82_formal_deployment_ladder_pct': [10, 20, 30, 45, 60, 75, 85, 95, 100],
         'expected_models': expected_models,
         'actual_models': len(df),
@@ -171,19 +131,15 @@ def main():
         'qa_contribution_over_1m_rows': len(bad_contrib),
         'capital_conservation_failures': len(bad_capital),
         'case1_blocker': rows[0],
+        'note': 'Mechanical equal-weight comparators remain comparators only; Mentor target weights are separately locked and will govern dynamic Case 1 bond allocation when BondV75/PIT-T+1 execution is implemented.'
     }
-    (OUT / 'run_status.json').write_text(
-        json.dumps(status, ensure_ascii=False, indent=2), encoding='utf-8'
-    )
+    (OUT / 'run_status.json').write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding='utf-8')
 
-    if len(bad_contrib):
-        raise RuntimeError('Contribution QA failed: > NT$1m in an effective year')
-    if len(bad_capital):
-        raise RuntimeError('Capital conservation QA failed')
+    if len(bad_contrib): raise RuntimeError('Contribution QA failed: > NT$1m in an effective year')
+    if len(bad_capital): raise RuntimeError('Capital conservation QA failed')
 
-    preferred_cols = ['model', 'status', 'ending_asset_twd', 'xirr_mwr', 'twr_cagr', 'unitized_mdd']
-    printable_cols = [c for c in preferred_cols if c in df.columns]
-    print(df[printable_cols].to_string(index=False))
+    cols = [c for c in ['model','status','ending_asset_twd','xirr_mwr','twr_cagr','unitized_mdd'] if c in df.columns]
+    print(df[cols].to_string(index=False))
     print(json.dumps(status, ensure_ascii=False))
 
 
