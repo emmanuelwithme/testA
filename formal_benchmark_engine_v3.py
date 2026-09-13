@@ -8,24 +8,27 @@ import pandas as pd
 
 import backtest_33_models_v2 as base
 
-# Mentor.md owns candidate universes and long-term target roles.
-# V82.md owns equity execution; 債券V75.md owns bond execution.
-# This module is still the mechanical benchmark layer only. Case 1 remains
-# blocked until the complete PIT/T+1 dynamic execution pipeline exists.
+# Current formal architecture (Mentor.md v3.6.0):
+# Mentor owns long-run S0/B0, candidate universes and client constraints.
+# V70_2.html receives S0/B0 and outputs only total tactical equity/bond/dry-powder budgets.
+# V82 owns equity security-level execution; 債券V75 owns bond security-level execution.
+# This file is the mechanical benchmark layer only and must not invent dynamic
+# V70/V82/BondV75 rules while the complete PIT/T+1 execution pipeline is unfinished.
 STOCKS = {
     'VT': 'VT', 'VOO': 'VOO', 'QQQ': 'QQQ', '0050': '0050.TW',
     'SOXX': 'SOXX', 'PPH': 'PPH', 'NATO': 'NATO.L',
 }
-# SGOV has two distinct logical roles that share the same ticker. The bond-bucket
-# role below is investable inside the formal US bond subbucket. Unused capital is
-# separately represented by PARKING_ASSET and must never be double-counted.
+# Primary US-listed bond candidate examples currently supported by this benchmark's
+# price pipeline. SGOV_BOND_BUCKET is a logical accounting role using ticker SGOV.
+# No current-run bond weights are hardcoded here: BondV75 owns selection/sizing.
 BONDS = {
     'SGOV_BOND_BUCKET': 'SGOV',
     'SPSB': 'SPSB',
     'BNDW': 'BNDW',
 }
-US_BOND_TARGET_WEIGHTS = {'SGOV_BOND_BUCKET': 0.50, 'SPSB': 0.35, 'BNDW': 0.15}
-TAIWAN_BOND_CORE = {'00859B': 0.80, '00860B': 0.20}
+MENTOR_BOND_PRIMARY_EXAMPLES = ['SGOV', 'SPSB', 'BNDW', '00859B', '00860B']
+MENTOR_BOND_EXTENDED_EXAMPLES = ['SHY', 'IEF', 'SPIB', 'TLT', 'SPLB', '00719B']
+TAIWAN_BOND_CANDIDATES_REQUIRING_SEPARATE_FORMAL_DATA_PIPELINE = ['00859B', '00860B']
 RISK = {**STOCKS, **BONDS}
 PARKING_ASSET = 'SGOV_DRY_POWDER_BUCKET'
 PARKING_TICKER = 'SGOV'
@@ -56,13 +59,18 @@ def capital_conservation_check(model: str, res: dict | None) -> dict:
 
 def main():
     p, fx = base.prices_twd()
-    park = base.parking_index(fx)  # physical SGOV used for dry-powder parking only
+    park = base.parking_index(fx)
     rows, results = [], {}
 
     rows.append({
-        'model': 'Case1_V82_plus_BondV75_dynamic_common_pool',
+        'model': 'Case1_MentorS0B0_V70Tactical_V82_plus_BondV75_dynamic_common_pool',
         'status': 'BLOCKED_MISSING_COMPLETE_PIT_T1_DYNAMIC_EXECUTION_PIPELINE',
-        'reason': 'Mentor v3.0 candidate roles, V70.2 bucket governance and V82 deployment ladder are resolved. Remaining blocker is complete PIT/T+1 dynamic V82/BondV75 execution. No artificial rule or proxy is inserted.',
+        'reason': (
+            'Latest Mentor v3.6 architecture is now locked: Mentor S0/B0 -> V70_2 total tactical '
+            'equity/bond/V70_ORIGINAL_DRY_POWDER budgets -> V82 and BondV75 security-level execution. '
+            'Formal Case 1 remains blocked until PIT/T+1 historical V70 inputs and complete dynamic '
+            'V82/BondV75 execution exist. No old fixed bond weights or cross-bucket shortcut is inserted.'
+        ),
     })
 
     specs = []
@@ -114,12 +122,15 @@ def main():
 
     status = {
         'engine': 'formal_benchmark_engine_v3',
-        'mentor_version': 'v3.0.0',
+        'mentor_version': 'v3.6.0',
+        'formal_architecture': 'Mentor S0/B0 -> V70_2 tactical total budgets -> V82/BondV75 security-level execution -> undeployed execution budgets to SGOV_DRY_POWDER_BUCKET',
         'formal_window': '2005-01-01..2026-08-31',
-        'mentor_equity_candidates': list(STOCKS),
-        'mentor_us_bond_core_logical_assets': list(BONDS),
-        'mentor_us_bond_target_weights': US_BOND_TARGET_WEIGHTS,
-        'mentor_taiwan_bond_core': TAIWAN_BOND_CORE,
+        'mentor_equity_candidate_examples': list(STOCKS),
+        'mentor_bond_primary_examples': MENTOR_BOND_PRIMARY_EXAMPLES,
+        'mentor_bond_extended_examples': MENTOR_BOND_EXTENDED_EXAMPLES,
+        'benchmark_supported_us_bond_logical_assets': list(BONDS),
+        'taiwan_bond_candidates_pending_formal_data_pipeline': TAIWAN_BOND_CANDIDATES_REQUIRING_SEPARATE_FORMAL_DATA_PIPELINE,
+        'mentor_current_run_bond_weights_hardcoded': False,
         'parking_asset_logical_role': PARKING_ASSET,
         'parking_ticker': PARKING_TICKER,
         'sgov_dual_role_separated': True,
@@ -131,12 +142,17 @@ def main():
         'qa_contribution_over_1m_rows': len(bad_contrib),
         'capital_conservation_failures': len(bad_capital),
         'case1_blocker': rows[0],
-        'note': 'Mechanical equal-weight comparators remain comparators only; Mentor target weights are separately locked and will govern dynamic Case 1 bond allocation when BondV75/PIT-T+1 execution is implemented.'
+        'note': (
+            'Mechanical equal-weight comparators are benchmarks only. They are not Mentor or BondV75 target weights. '
+            'Taiwan-listed bond candidates require their own formal total-return/PIT-safe data path before inclusion.'
+        )
     }
     (OUT / 'run_status.json').write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding='utf-8')
 
-    if len(bad_contrib): raise RuntimeError('Contribution QA failed: > NT$1m in an effective year')
-    if len(bad_capital): raise RuntimeError('Capital conservation QA failed')
+    if len(bad_contrib):
+        raise RuntimeError('Contribution QA failed: > NT$1m in an effective year')
+    if len(bad_capital):
+        raise RuntimeError('Capital conservation QA failed')
 
     cols = [c for c in ['model','status','ending_asset_twd','xirr_mwr','twr_cagr','unitized_mdd'] if c in df.columns]
     print(df[cols].to_string(index=False))
