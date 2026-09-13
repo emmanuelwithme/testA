@@ -11,7 +11,7 @@ import backtest_33_models_v2 as base
 # Mentor.md is the candidate-universe source of truth.
 # V82.md / 債券V75.md remain the execution-rule sources; this file only builds
 # the mechanical B&H/DCA benchmark layers while Case 1 remains blocked until
-# the full PIT/T+1 rule-engine pipeline is available.
+# the complete PIT/T+1 dynamic rule-engine pipeline is available.
 STOCKS = {
     'VT': 'VT',
     'VOO': 'VOO',
@@ -78,12 +78,14 @@ def main():
     # V70.2 owns the upper stock/bond/parking bucket caps. V82 owns stock
     # execution and Bond V75 owns bond execution. The two risk buckets cannot
     # borrow each other's unused allowance; unused capital remains parked.
-    # Case 1 is deliberately blocked until the formal dynamic rule engines and
-    # complete point-in-time / T+1 macro data pipeline are implemented.
+    # Latest V82 now directly owns a fixed cumulative deployment ladder
+    # (10/20/30/45/60/75/85/95/100% of project target position), so missing
+    # deployment calibration is no longer a blocker. Case 1 remains blocked
+    # only until the full dynamic engines and complete PIT/T+1 inputs exist.
     rows.append({
         'model': 'Case1_V82_plus_BondV75_dynamic_common_pool',
-        'status': 'BLOCKED_MISSING_VALIDATED_DEPLOYMENT_CALIBRATION_AND_PIT_DATA',
-        'reason': 'V70.2 bucket governance is resolved, but the formal V82/BondV75 dynamic execution pipeline and complete PIT/T+1 inputs are not yet implemented. No artificial rule or proxy is inserted.',
+        'status': 'BLOCKED_MISSING_COMPLETE_PIT_T1_DYNAMIC_EXECUTION_PIPELINE',
+        'reason': 'V70.2 bucket governance and the formal V82 deployment ladder are resolved. The remaining blocker is implementation of the complete V82/BondV75 dynamic execution pipeline with complete PIT/T+1 inputs. No artificial rule or proxy is inserted.',
     })
 
     specs = []
@@ -161,6 +163,7 @@ def main():
         'mentor_equity_candidates': list(STOCKS),
         'mentor_us_risk_bond_candidates': list(BONDS),
         'parking_asset': PARKING_ASSET,
+        'v82_formal_deployment_ladder_pct': [10, 20, 30, 45, 60, 75, 85, 95, 100],
         'expected_models': expected_models,
         'actual_models': len(df),
         'ok_models': int((df.status == 'OK').sum()),
