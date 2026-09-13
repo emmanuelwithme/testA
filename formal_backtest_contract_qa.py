@@ -46,10 +46,9 @@ def main():
     end = extract_const(engine, 'END') or ('2026-09-01' if '2005-01-01..2026-08-31' in engine else None)
     pools = lock.get('generic_priority_candidate_pools', {})
     roles = lock.get('asset_roles', {})
-    weights = lock.get('target_weights_within_subbucket', {})
-    eq = pools.get('equity', [])
-    us_bonds = pools.get('us_bond_core', [])
-    tw_bonds = pools.get('taiwan_bond_core', [])
+    gov = lock.get('governance', {})
+    eq = pools.get('equity_examples', [])
+    bond_primary = pools.get('bond_primary_examples', [])
     engine_stocks = extract_literal_dict_keys(engine, 'STOCKS')
     engine_bonds = extract_literal_dict_keys(engine, 'BONDS')
     deployment_ladder = deployment_lock.get('deployment_completion_ladder', [])
@@ -60,14 +59,16 @@ def main():
 
     checks = {
         'candidate_lock_present': bool(lock),
-        'mentor_v3_is_candidate_source': lock.get('source_of_truth', {}).get('file') == 'Mentor.md' and lock.get('source_of_truth', {}).get('source_version') == 'v3.0.0',
-        'v82_is_equity_execution_source': lock.get('governance', {}).get('equity_execution_rule') == 'V82.md',
-        'bondv75_is_bond_execution_source': lock.get('governance', {}).get('bond_execution_rule') == '債券V75.md',
-        'v70_2_is_upper_allocator': lock.get('governance', {}).get('upper_allocator_rule') == 'V70_2缺估值白皮書.md',
-        'unused_bucket_capacity_cannot_cross': lock.get('governance', {}).get('unused_bucket_capacity_may_cross_buckets') is False,
-        'sgov_dual_role_explicit': roles.get('parking_assets') == ['SGOV_DRY_POWDER_BUCKET'] and roles.get('bond_bucket_sgov_logical_asset') == 'SGOV_BOND_BUCKET' and roles.get('parking_ticker') == 'SGOV' and roles.get('bond_bucket_sgov_ticker') == 'SGOV',
-        'us_bond_target_weights_locked': weights.get('us_bond_core') == {'SGOV_BOND_BUCKET': 0.50, 'SPSB': 0.35, 'BNDW': 0.15},
-        'taiwan_bond_target_weights_locked': weights.get('taiwan_bond_core') == {'00859B': 0.80, '00860B': 0.20},
+        'mentor_v36_is_strategic_and_candidate_source': lock.get('source_of_truth', {}).get('file') == 'Mentor.md' and lock.get('source_of_truth', {}).get('source_version') == 'v3.6.0',
+        'mentor_owns_S0_B0': gov.get('strategic_allocator_rule') == 'Mentor.md',
+        'v70_2_html_is_tactical_executable_source': gov.get('tactical_allocator_executable_rule') == 'V70_2.html',
+        'v70_16_is_tactical_explanatory_source': gov.get('tactical_allocator_explanatory_rule') == 'V70_16白皮書.md',
+        'v70_does_not_select_individual_assets': gov.get('v70_may_select_individual_assets') is False,
+        'v82_is_equity_execution_source': gov.get('equity_execution_rule') == 'V82.md',
+        'bondv75_is_bond_execution_source': gov.get('bond_execution_rule') == '債券V75.md',
+        'mentor_does_not_hardcode_current_bond_weights': gov.get('mentor_may_hardcode_current_run_bond_weights') is False,
+        'sgov_dual_role_explicit': roles.get('parking_logical_asset') == 'SGOV_DRY_POWDER_BUCKET' and roles.get('bond_bucket_sgov_logical_asset') == 'SGOV_BOND_BUCKET' and roles.get('parking_ticker') == 'SGOV' and roles.get('bond_bucket_sgov_ticker') == 'SGOV',
+        'mother_backtest_source_resolved': gov.get('backtest_design_file_status') != 'NOT_FOUND_IN_CURRENT_DRIVE_ROOT_REQUIRES_RELOCATION_OR_CONFIRMATION',
         'v82_deployment_lock_present': bool(deployment_lock),
         'v82_deployment_ladder_matches_latest_formal_rule': deployment_ladder == EXPECTED_V82_LADDER,
         'v82_owns_formal_deployment_ratios': deployment_gov.get('v82_owns_formal_deployment_ratios') is True,
@@ -76,9 +77,10 @@ def main():
         'main_start_2005_or_earlier': bool(start and start <= '2005-01-01'),
         'main_end_2026_08_31_or_later': bool(end and end >= '2026-09-01'),
         'legacy_workflow_not_formal_authority': stale_legacy_window,
-        'engine_equity_universe_matches_mentor_lock': engine_stocks == eq,
-        'engine_us_bond_universe_matches_mentor_lock': engine_bonds == us_bonds,
-        'taiwan_bond_pool_recorded': tw_bonds == ['00859B', '00860B'],
+        'engine_equity_universe_matches_mentor_examples': engine_stocks == eq,
+        'engine_supported_bonds_are_subset_of_mentor_primary': set(engine_bonds).issubset({'SGOV_BOND_BUCKET','SPSB','BNDW'}) and {'SGOV','SPSB','BNDW'}.issubset(set(bond_primary)),
+        'taiwan_primary_bond_candidates_recorded': {'00859B','00860B'}.issubset(set(bond_primary)),
+        'no_fixed_mentor_bond_weights_in_lock': 'target_weights_within_subbucket' not in lock,
         'case1_dynamic_portfolio_implemented': not case1_blocked,
         'explicit_buy_and_hold_comparator': contains_any(engine, ['Case2_AnnualSingle', 'annual_equal', 'Buy & Hold', 'buy_and_hold']),
         'explicit_dca_comparator': contains_any(engine, ['Case4_MonthlySingle', 'monthly_equal', 'DCA']),
@@ -106,23 +108,24 @@ def main():
 
     readiness_checks = {k: v for k, v in checks.items() if k != 'legacy_workflow_not_formal_authority'}
     status = {
-        'schema_version': 5,
+        'schema_version': 6,
         'formal_backtest_ready': all(readiness_checks.values()),
         'engine': str(ENGINE),
         'observed_engine_start': start,
         'observed_engine_end_exclusive': end,
-        'locked_equity_candidates': eq,
-        'locked_us_bond_core': us_bonds,
-        'locked_taiwan_bond_core': tw_bonds,
-        'locked_us_bond_target_weights': weights.get('us_bond_core', {}),
-        'locked_taiwan_bond_target_weights': weights.get('taiwan_bond_core', {}),
-        'sgov_roles': {'bond': roles.get('bond_bucket_sgov_logical_asset'), 'dry_powder': (roles.get('parking_assets') or [None])[0], 'ticker': roles.get('parking_ticker')},
+        'locked_equity_candidate_examples': eq,
+        'locked_bond_primary_examples': bond_primary,
         'locked_v82_deployment_ladder_pct': deployment_ladder,
         'observed_engine_equity_assets': engine_stocks,
         'observed_engine_bond_assets': engine_bonds,
         'checks': checks,
         'failed_checks': [k for k, v in readiness_checks.items() if not v],
-        'policy': 'Mentor v3 owns candidate universes and target roles; V82 owns equity execution; BondV75 owns bond execution; V70.2 owns bucket caps. SGOV bond and dry-powder roles are separate accounting buckets. Only formal_backtest_ready=true authorizes formal performance conclusions.'
+        'policy': (
+            'Mentor v3.6 owns strategic S0/B0, candidate universes and client constraints; V70_2.html owns tactical C/T and total equity/bond/dry-powder budgets only; '
+            'V82 owns equity security-level execution; BondV75 owns bond security-level execution. SGOV bond and dry-powder roles are separate. '
+            'No fixed current-run bond weights may be attributed to Mentor. The missing standalone 母規則回測.md is a formal certification blocker; '
+            'only formal_backtest_ready=true authorizes final strategy performance conclusions.'
+        )
     }
     OUT.write_text(json.dumps(status, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print('FORMAL_BACKTEST_CONTRACT_QA_EXECUTED')
