@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "source_of_truth": {
+    "file": "V82.md",
+    "drive_path": "/Google Drive/V82.md",
+    "drive_file_id": "1EObD96ptt3Io_YtTNGTWW1bms30wKguz",
+    "document_last_modified_taipei": "2026-09-12 13:34",
+    "source_section": "2026/09/12 08:21｜V82細階梯左側部署正式定稿"
+  },
+  "deployment_completion_ladder": [10, 20, 30, 45, 60, 75, 85, 95, 100],
+  "units": "percent_of_project_target_position_cumulative_completion",
+  "interpretation": {
+    "left_side": "fine-step accumulation; deeper but safe declines may increase cumulative completion to 75%/85%",
+    "right_confirmation": "may raise cumulative completion to 95%",
+    "trend_reacceleration": "when still underweight, may complete to 100%",
+    "hard_gate": "veto remains active",
+    "runaway_down": "veto/pause remains active",
+    "credit_liquidity_thesis_break": "veto/risk-reduction remains active"
+  },
+  "governance": {
+    "v82_owns_formal_deployment_ratios": true,
+    "mother_backtest_may_optimize_formal_ratios": false,
+    "mother_backtest_role": "fair validation and sensitivity testing only",
+    "project_specific_lower_cap_may_override": true,
+    "ratios_are_cumulative_not_incremental": true
+  },
+  "research_note": "This lock records the current formal V82 rule. It is not a newly optimized calibration and must not be changed from backtest results without a new V82 version."
+}
