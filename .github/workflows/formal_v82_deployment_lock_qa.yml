@@ -1,0 +1,25 @@
+name: Formal V82 Deployment Lock QA
+
+on:
+  push:
+    paths:
+      - 'formal_v82_deployment_lock.json'
+      - 'validate_formal_v82_deployment_lock.py'
+      - '.github/workflows/formal_v82_deployment_lock_qa.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate V82 deployment lock
+        run: python validate_formal_v82_deployment_lock.py
+      - name: Upload deployment lock QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: formal-v82-deployment-lock-status
+          path: formal_v82_deployment_lock_status.json
