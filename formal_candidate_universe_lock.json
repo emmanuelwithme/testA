@@ -1,52 +1,62 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "source_of_truth": {
     "file": "Mentor.md",
     "drive_file_id": "1oeiito_HRs10w50YjqImIfir8R2qdBdw",
-    "source_version": "v3.0.0",
-    "source_last_modified_taipei": "2026-09-13 13:07",
-    "captured_for_backtest_qa_taipei": "2026-09-13",
-    "authority": "candidate_universe_and_target_roles"
+    "source_version": "v3.6.0",
+    "source_last_modified_taipei": "2026-09-14 01:21",
+    "captured_for_backtest_qa_taipei": "2026-09-14",
+    "authority": "strategic_S0_B0_candidate_universe_and_client_constraints"
   },
   "governance": {
+    "strategic_allocator_rule": "Mentor.md",
+    "tactical_allocator_executable_rule": "V70_2.html",
+    "tactical_allocator_explanatory_rule": "V70_16白皮書.md",
     "equity_execution_rule": "V82.md",
     "bond_execution_rule": "債券V75.md",
     "backtest_design_rule": "母規則回測.md",
-    "upper_allocator_rule": "V70_2缺估值白皮書.md",
-    "unused_capital_destination": "SGOV_DRY_POWDER_BUCKET_or_formal_short_bond_parking_pool",
-    "unused_bucket_capacity_may_cross_buckets": false
+    "backtest_design_file_status": "NOT_FOUND_IN_CURRENT_DRIVE_ROOT_REQUIRES_RELOCATION_OR_CONFIRMATION",
+    "v70_may_select_individual_assets": false,
+    "mentor_may_hardcode_current_run_bond_weights": false,
+    "unused_execution_budget_destination": "SGOV_DRY_POWDER_BUCKET",
+    "sgov_bond_and_dry_powder_must_be_separate": true
   },
   "generic_priority_candidate_pools": {
-    "equity": ["VT", "VOO", "QQQ", "0050", "SOXX", "PPH", "NATO"],
-    "us_bond_core": ["SGOV_BOND_BUCKET", "SPSB", "BNDW"],
-    "taiwan_bond_core": ["00859B", "00860B"]
+    "equity_examples": ["VT", "VOO", "QQQ", "0050", "SOXX", "PPH", "NATO"],
+    "bond_primary_examples": ["SGOV", "SPSB", "BNDW", "00859B", "00860B"]
   },
-  "target_weights_within_subbucket": {
-    "us_bond_core": {
-      "SGOV_BOND_BUCKET": 0.50,
-      "SPSB": 0.35,
-      "BNDW": 0.15
-    },
-    "taiwan_bond_core": {
-      "00859B": 0.80,
-      "00860B": 0.20
-    }
+  "existing_holding_or_extended_candidates": {
+    "bond": ["SHY", "IEF", "SPIB", "TLT", "SPLB", "00719B"]
   },
   "asset_roles": {
-    "parking_assets": ["SGOV_DRY_POWDER_BUCKET"],
+    "parking_logical_asset": "SGOV_DRY_POWDER_BUCKET",
     "parking_ticker": "SGOV",
     "bond_bucket_sgov_logical_asset": "SGOV_BOND_BUCKET",
-    "bond_bucket_sgov_ticker": "SGOV",
-    "us_bond_core_assets": ["SGOV_BOND_BUCKET", "SPSB", "BNDW"],
-    "taiwan_bond_core_assets": ["00859B", "00860B"],
-    "legacy_research_or_existing_holding_only": ["00719B", "SHY", "IEF", "SPIB", "TLT", "SPLB"]
+    "bond_bucket_sgov_ticker": "SGOV"
+  },
+  "formal_state_contract": {
+    "required_fields": [
+      "STOCK_ALLOCATION_FINAL",
+      "BOND_ALLOCATION_FINAL",
+      "SGOV_BOND_BUCKET",
+      "V70_ORIGINAL_DRY_POWDER",
+      "V82_UNDEPLOYED_TO_SGOV",
+      "V75_UNDEPLOYED_TO_SGOV",
+      "SGOV_DRY_POWDER_BUCKET",
+      "CASH_DRY_POWDER_BUCKET",
+      "TOTAL_DRY_POWDER"
+    ],
+    "sgov_dry_powder_formula": "V70_ORIGINAL_DRY_POWDER + V82_UNDEPLOYED_TO_SGOV + V75_UNDEPLOYED_TO_SGOV",
+    "total_dry_powder_formula": "SGOV_DRY_POWDER_BUCKET + CASH_DRY_POWDER_BUCKET",
+    "double_count_sgov_forbidden": true
   },
   "scope_notes": [
-    "Mentor.md v3.0.0 owns candidate universes and long-term target roles. V82 and BondV75 do not own the candidate universe.",
-    "SGOV has two accounting roles that must remain distinct: SGOV_BOND_BUCKET is formal bond allocation; SGOV_DRY_POWDER_BUCKET is unallocated/stock-waiting liquidity. They may share ticker SGOV but must never be double-counted or freely transferred across roles.",
-    "The US bond subbucket target is SGOV 50% / SPSB 35% / BNDW 15%; the Taiwan bond subbucket target is 00859B 80% / 00860B 20%.",
-    "00719B, SHY, IEF, SPIB, TLT and SPLB remain valid for research or existing-holding management but are paused as generic new-allocation core candidates.",
-    "Client-specific existing/preferred assets remain outside the generic mother-rule lock unless separately version-locked for a client backtest.",
-    "This lock records the Mentor snapshot for reproducibility; it does not modify Mentor, V82, BondV75, mother backtest rules, or V70.2."
+    "Mentor v3.6 owns long-run S0/B0, candidate universes, client constraints and project state; it does not decide current-run per-asset deployment sizes.",
+    "V70_2.html is the executable tactical small-knob source: it receives S0/B0, computes macro-driven C and T, and outputs only total equity, total bond and V70_ORIGINAL_DRY_POWDER budgets. It must not select individual stocks or bonds.",
+    "V82 owns stock/equity-ETF security-level execution; BondV75 owns bond/bond-ETF security-level selection, sizing and deployment.",
+    "Mentor v3.6 explicitly forbids hardcoding SGOV 50% or any other current-run bond weight. Earlier fixed 50/35/15 and 80/20 values are not Mentor-owned formal current-run weights.",
+    "SGOV_BOND_BUCKET and SGOV_DRY_POWDER_BUCKET share ticker SGOV but are separate accounting roles and must never be double-counted.",
+    "Candidate examples are a generic research starting universe, not mandatory holdings. Client-specific preferred/existing assets require a separate client snapshot when backtested.",
+    "This lock records the current Mentor architecture for reproducibility and does not alter the formal strategy rules."
   ]
 }
