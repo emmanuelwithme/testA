@@ -7,6 +7,7 @@ ENGINE = Path('formal_benchmark_engine_v3.py')
 LEGACY_WORKFLOW = Path('.github/workflows/formal_backtest.yml')
 LOCK = Path('formal_candidate_universe_lock.json')
 DEPLOYMENT_LOCK = Path('formal_v82_deployment_lock.json')
+MOTHER_LOCK = Path('formal_mother_backtest_lock.json')
 OUT = Path('formal_backtest_contract_status.json')
 EXPECTED_V82_LADDER = [10, 20, 30, 45, 60, 75, 85, 95, 100]
 EXPECTED_US_BOND_WEIGHTS = {'SGOV_BOND_BUCKET': 0.50, 'SPSB': 0.35, 'BNDW': 0.15}
@@ -48,6 +49,7 @@ def main():
     workflow = LEGACY_WORKFLOW.read_text(encoding='utf-8') if LEGACY_WORKFLOW.exists() else ''
     lock = json.loads(LOCK.read_text(encoding='utf-8')) if LOCK.exists() else {}
     deployment_lock = json.loads(DEPLOYMENT_LOCK.read_text(encoding='utf-8')) if DEPLOYMENT_LOCK.exists() else {}
+    mother_lock = json.loads(MOTHER_LOCK.read_text(encoding='utf-8')) if MOTHER_LOCK.exists() else {}
 
     start = extract_const(engine, 'START') or ('2005-01-01' if '2005-01-01..2026-08-31' in engine else None)
     end = extract_const(engine, 'END') or ('2026-09-01' if '2005-01-01..2026-08-31' in engine else None)
@@ -62,6 +64,11 @@ def main():
     engine_bonds = extract_literal_dict_keys(engine, 'BONDS')
     deployment_ladder = deployment_lock.get('deployment_completion_ladder', [])
     deployment_gov = deployment_lock.get('governance', {})
+    mother_src = mother_lock.get('source_of_truth', {})
+    mother_gov = mother_lock.get('governance_precedence', {})
+    mother_windows = mother_lock.get('formal_windows', {})
+    mother_exp = mother_lock.get('experiment_structure', {})
+    mother_outputs = mother_lock.get('required_outputs', {})
 
     stale_legacy_window = contains_any(workflow, ['Restrict formal evaluation window to 2019-2026', "start=pd.Timestamp('2019-01-01')", "end=pd.Timestamp('2026-08-26')"])
     case1_blocked = contains_any(engine, ['BLOCKED_MISSING_COMPLETE_PIT_T1_DYNAMIC_EXECUTION_PIPELINE', "'status': 'BLOCKED", '"status":"BLOCKED'])
@@ -84,7 +91,15 @@ def main():
         'bondv75_taiwan_80_20_locked': bond_policy.get('taiwan_bond_subbucket_target_weights') == EXPECTED_TW_BOND_WEIGHTS,
         'bondv75_targets_still_subject_to_market_safety': bond_policy.get('deployment_still_subject_to_bond_v75_market_safety_and_wait_rules') is True,
         'sgov_dual_role_explicit': roles.get('parking_logical_asset') == 'SGOV_DRY_POWDER_BUCKET' and roles.get('bond_bucket_sgov_logical_asset') == 'SGOV_BOND_BUCKET' and roles.get('parking_ticker') == 'SGOV' and roles.get('bond_bucket_sgov_ticker') == 'SGOV',
-        'mother_backtest_source_resolved': gov.get('backtest_design_file_status') != 'NOT_FOUND_IN_CURRENT_DRIVE_ROOT_REQUIRES_RELOCATION_OR_CONFIRMATION',
+        'mother_backtest_source_resolved': bool(mother_lock) and mother_src.get('file') == '母規則回測.md' and mother_src.get('source_last_modified_taipei') == '2026-09-10 00:56',
+        'mother_backtest_candidate_precedence_is_latest_mentor': mother_gov.get('candidate_universe_authority') == 'Mentor.md latest formal version',
+        'mother_backtest_main_window_locked': mother_windows.get('main') == ['2005-01-01', '2026-08-31'],
+        'mother_backtest_modern_subsample_locked': mother_windows.get('modern_subsample') == ['2019-01-01', '2026-08-31'],
+        'mother_backtest_stress_periods_locked': mother_windows.get('stress_years') == [2008, 2020, 2022],
+        'mother_backtest_eight_groups_locked': mother_exp.get('eight_test_groups_required') is True,
+        'mother_backtest_dynamic_primary_is_common_pool': mother_exp.get('dynamic_strategy_primary_level') == 'portfolio_common_capital_pool',
+        'mother_backtest_single_etf_is_benchmark_only': mother_exp.get('single_etf_results_role') == 'benchmark_only_not_V82_single_security_strategy_validation',
+        'mother_backtest_robustness_outputs_locked': all(mother_outputs.get(k) is True for k in ['opportunity_cost','is_oos','walk_forward','sensitivity','annual_risk_table','withdrawal_period_risk']),
         'v82_deployment_lock_present': bool(deployment_lock),
         'v82_deployment_ladder_matches_latest_formal_rule': deployment_ladder == EXPECTED_V82_LADDER,
         'v82_owns_formal_deployment_ratios': deployment_gov.get('v82_owns_formal_deployment_ratios') is True,
@@ -124,7 +139,7 @@ def main():
 
     readiness_checks = {k: v for k, v in checks.items() if k != 'legacy_workflow_not_formal_authority'}
     status = {
-        'schema_version': 7,
+        'schema_version': 8,
         'formal_backtest_ready': all(readiness_checks.values()),
         'engine': str(ENGINE),
         'observed_engine_start': start,
@@ -136,15 +151,17 @@ def main():
         'locked_bondv75_taiwan_weights': bond_policy.get('taiwan_bond_subbucket_target_weights', {}),
         'locked_v70_output_contract': v70_contract,
         'locked_v82_deployment_ladder_pct': deployment_ladder,
+        'locked_mother_backtest_source': mother_src,
+        'locked_mother_backtest_experiment_structure': mother_exp,
         'observed_engine_equity_assets': engine_stocks,
         'observed_engine_bond_assets': engine_bonds,
         'checks': checks,
         'failed_checks': [k for k, v in readiness_checks.items() if not v],
         'policy': (
-            'Mentor v3.6 owns strategic S0/B0, candidate universes and client constraints; V70_2.html Output Contract v1.1.1 owns tactical C/T and total equity/bond/V70_ORIGINAL_DRY_POWDER budgets only; '
-            'V82 owns equity security-level execution; BondV75 v2.4 owns bond life-stage subbucket target maps, per-security target maps, and bond deployment/safety decisions. '
-            'Fixed BondV75 target maps must not be attributed to Mentor or V70. SGOV bond and dry-powder roles are separate. '
-            'The missing standalone 母規則回測.md is a formal certification blocker; only formal_backtest_ready=true authorizes final strategy performance conclusions.'
+            'Mentor v3.6 owns strategic S0/B0, current candidate universes and client constraints; V70_2.html Output Contract v1.1.1 owns tactical C/T and total equity/bond/V70_ORIGINAL_DRY_POWDER budgets only; '
+            'V82 owns equity security-level execution; BondV75 v2.4 owns bond life-stage/subbucket/security target maps and bond deployment/safety decisions. '
+            'The formal mother-backtest design was located in Library (母規則回測.md, 2026-09-10 00:56) and governs experiment structure, fairness, PIT/T+1, accounting, metrics and robustness, but its older embedded asset list cannot override a later formal Mentor candidate-universe definition. '
+            'Single-ETF results are benchmark-only; the formal dynamic strategy is the V82+BondV75 common-capital Portfolio Case 1. SGOV bond and dry-powder roles are separate. Only formal_backtest_ready=true authorizes final strategy performance conclusions.'
         )
     }
     OUT.write_text(json.dumps(status, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
