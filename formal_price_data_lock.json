@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "as_of_taipei": "2026-09-14 17:36",
+  "schema_version": 2,
+  "as_of_taipei": "2026-09-14 17:40",
   "policy": "Formal conclusions require actual-asset, auditable price/total-return data. Provider discontinuities must be resolved; unavailable pre-history stays N/A and must never be replaced silently by NAV/index/proxy data.",
   "assets": {
     "0050": {
@@ -9,24 +9,39 @@
       "current_yahoo_repaired_history_start": "2009-01-02",
       "provider_discontinuity": {
         "date": "2014-01-02",
-        "previous_adjusted_close": 37.18612289428711,
-        "current_adjusted_close": 9.272775650024414,
-        "daily_return": -0.7506388400000000,
-        "unrepaired_previous_close": 58.70000076293945,
-        "unrepaired_current_close": 14.637499809265137,
-        "provider_stock_split_field": 0.0,
-        "status": "PROVIDER_SCALE_BREAK_NOT_MARKET_RETURN"
+        "yahoo_previous_adjusted_close": 37.18612289428711,
+        "yahoo_current_adjusted_close": 9.272775650024414,
+        "yahoo_daily_return": -0.7506388400000000,
+        "yahoo_unrepaired_previous_close": 58.70000076293945,
+        "yahoo_unrepaired_current_close": 14.637499809265137,
+        "yahoo_stock_split_field": 0.0,
+        "twse_official_previous_close_2013_12_31": 58.70,
+        "twse_official_close_2014_01_02": 58.55,
+        "twse_official_daily_change": -0.15,
+        "status": "CONFIRMED_PROVIDER_SCALE_BREAK_NOT_MARKET_RETURN"
       },
       "official_twse_stock_day_api": {
-        "status": "PARTIAL_SOURCE_IN_PROGRESS",
-        "current_endpoint_pre2010_limit": "query date earlier than ROC 99/01/04 rejected",
+        "status": "2010PLUS_FETCH_COMPLETE",
+        "source_run_id": 34828750078,
+        "artifact_id": 10341392493,
+        "artifact_sha256": "ea998fb45a828342abca0e5f09d0579a08ec458de7ada98d7231c7c0262dfe1d",
+        "official_api_supported_start": "2010-01-04",
+        "last_observation": "2026-08-31",
+        "n_observations": 4078,
+        "gt55pct_jump_count": 1,
+        "gt55pct_jump_date": "2025-06-18",
+        "current_endpoint_pre2010_limit": "TWSE states stock-day information is provided from ROC 99/01/04; earlier query dates are rejected",
         "pre2010_policy": "NA_ONLY_UNTIL_LAWFUL_ACTUAL_ETF_HISTORY_LOCATED"
       },
+      "split_validation": {
+        "2014_split": false,
+        "2014_note": "Official TWSE close is continuous 58.70 -> 58.55; Yahoo quarter-scale break is invalid for market-return use.",
+        "2025_split": "KNOWN_1_FOR_4_EVENT_REQUIRES_FORMAL_TOTAL_RETURN_CHAIN_VALIDATION"
+      },
       "remaining": [
-        "complete official TWSE 2010+ history fetch",
-        "locate lawful actual-ETF 2005-2009 trading history if available",
+        "locate lawful actual-ETF 2005-2009 trading history if available; current TWSE stock-day service begins 2010-01-04",
         "merge auditable cash-distribution history for total return",
-        "validate 2025 1-for-4 split handling"
+        "validate 2025 1-for-4 split handling inside the final total-return chain"
       ]
     },
     "00859B": {
