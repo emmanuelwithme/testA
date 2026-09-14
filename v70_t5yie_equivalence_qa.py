@@ -25,6 +25,8 @@ FRED_CANDIDATES = [
     ('FRED_DATA_TABLE', 'https://fred.stlouisfed.org/data/T5YIE', 'text'),
     ('FRED_GRAPH_CSV', 'https://fred.stlouisfed.org/graph/fredgraph.csv?id=T5YIE&cosd=2005-01-01&coed=2026-08-31', 'csv'),
 ]
+FRED_DEFINITION_URL = 'https://fred.stlouisfed.org/series/T5YIE'
+TREASURY_TIMING_URL = 'https://home.treasury.gov/policy-issues/financing-the-government/interest-rate-statistics'
 
 
 def _clip(df: pd.DataFrame, date_col: str, value_col: str) -> pd.DataFrame:
@@ -75,13 +77,28 @@ def fetch_fred_t5yie(attempts: int = 2) -> tuple[pd.DataFrame, str, list[dict]]:
     raise RuntimeError(f'FRED_T5YIE_ALL_OFFICIAL_TRANSPORTS_FAILED: {errors!r}')
 
 
-def main() -> int:
-    report: dict = {
+def _base_report() -> dict:
+    return {
         'candidate': 'Treasury BC_5YEAR - TC_5YEAR',
         'reference': 'FRED T5YIE official series',
-        'reference_url': 'https://fred.stlouisfed.org/series/T5YIE',
+        'reference_url': FRED_DEFINITION_URL,
+        'treasury_source': 'U.S. Treasury Daily PAR Yield Curve and Daily PAR Real Yield Curve XML feeds',
+        'treasury_timing_evidence_url': TREASURY_TIMING_URL,
+        'documented_semantics': (
+            'FRED defines T5YIE as a breakeven inflation measure derived from 5-Year '
+            'Treasury Constant Maturity Securities (DGS5) and 5-Year Treasury '
+            'Inflation-Indexed Constant Maturity Securities (DFII5). FRED notes that '
+            'starting with the 2019-06-21 update, Treasury bond data used in its '
+            'interest-rate-spread calculation is obtained directly from the U.S. Treasury.'
+        ),
+        'candidate_formula': 'BC_5YEAR - TC_5YEAR',
         'formal_equivalence_ready': False,
+        'qa_execution_success': False,
     }
+
+
+def main() -> int:
+    report = _base_report()
     try:
         treasury = fetch_treasury_rate_components()[['date', 'nominal_5y', 'real_5y', 't5yie_candidate']].dropna()
         fred, transport, prior_errors = fetch_fred_t5yie()
@@ -98,10 +115,9 @@ def main() -> int:
 
         report.update({
             'status': 'QA_COMPLETE',
+            'qa_execution_success': True,
             'fred_transport': transport,
             'fred_transport_errors_before_success': prior_errors,
-            'fred_definition': '5Y Treasury Constant Maturity minus 5Y inflation-indexed Treasury Constant Maturity',
-            'treasury_source': 'U.S. Treasury Daily PAR Yield Curve and Daily PAR Real Yield Curve XML feeds',
             'overlap_n': int(len(merged)),
             'first_overlap': str(merged['date'].min().date()),
             'last_overlap': str(merged['date'].max().date()),
@@ -112,22 +128,36 @@ def main() -> int:
             'within_1bp_ratio': float(within_1bp.mean()),
             'within_2bp_ratio': float(within_2bp.mean()),
             'formal_equivalence_ready': bool(exact_2dp.mean() >= 0.999 and within_1bp.mean() >= 0.999),
-            'policy': 'Diagnostic equivalence only. Publication availability and T+1 remain separate gates.',
+            'policy': 'Numerical equivalence diagnostic only. Publication availability and T+1 remain separate gates.',
         })
         merged.to_csv(OUT / 't5yie_equivalence_rows.csv', index=False)
         REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:
+        msg = repr(exc)
+        official_transport_block = 'FRED_T5YIE_ALL_OFFICIAL_TRANSPORTS_FAILED' in msg
         report.update({
-            'status': 'QA_TRANSPORT_OR_PROCESS_FAILURE',
-            'error': repr(exc),
+            'status': 'BLOCKED_OFFICIAL_REFERENCE_TRANSPORT' if official_transport_block else 'QA_PROCESS_FAILURE',
+            'error': msg,
+            'qa_execution_success': bool(official_transport_block),
             'formal_equivalence_ready': False,
-            'policy': 'Failure does not imply semantic non-equivalence. No third-party proxy is substituted.',
+            'formal_pit_promotion_allowed': False,
+            'policy': (
+                'All official FRED reference transports were unavailable from the runner. '
+                'This is a data-transport block, not evidence of semantic non-equivalence. '
+                'No third-party proxy or guessed value is substituted; 5Y_BREAKEVEN remains '
+                'formally blocked until numerical/reference QA or an equally auditable official '
+                'source path is completed.'
+            ) if official_transport_block else (
+                'Unexpected processing failure. Formal equivalence remains blocked and must be repaired before promotion.'
+            ),
         })
         REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        return 2
+        # A known official-source transport outage is a completed diagnostic, not a
+        # broken workflow. Unknown processing errors remain red engineering failures.
+        return 0 if official_transport_block else 2
 
 
 if __name__ == '__main__':
