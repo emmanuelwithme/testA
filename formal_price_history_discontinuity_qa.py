@@ -34,8 +34,11 @@ def fetch(ticker: str) -> pd.Series:
 def main() -> int:
     rows = []
     jumps = []
+    empty_assets = []
     for name, ticker in TICKERS.items():
         s = fetch(ticker)
+        if s.empty:
+            empty_assets.append(name)
         pct = s.pct_change()
         flagged = pct[pct.abs() > 0.55]
         rows.append({
@@ -65,7 +68,9 @@ def main() -> int:
     status = {
         'policy': 'Diagnostic only. A >55% adjusted-price jump must not automatically erase all prior valid ETF history without event/data QA.',
         'assets': rows,
+        'empty_assets': empty_assets,
         'flagged_jump_rows': len(jumps),
+        'qa_transport_pass': not empty_assets,
         'formal_backtest_ready': False,
         'note': 'This QA does not alter strategy rules or price histories. It identifies whether the legacy truncation heuristic is destroying valid pre-event history.'
     }
@@ -73,6 +78,8 @@ def main() -> int:
     print(json.dumps(status, ensure_ascii=False, indent=2))
     if jumps:
         print(pd.DataFrame(jumps).to_string(index=False))
+    if empty_assets:
+        raise RuntimeError(f'Market-data transport failed for: {empty_assets}')
     return 0
 
 
