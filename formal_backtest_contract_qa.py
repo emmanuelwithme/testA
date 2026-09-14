@@ -11,9 +11,9 @@ MOTHER_LOCK = Path('formal_mother_backtest_lock.json')
 PRICE_LOCK = Path('formal_price_data_lock.json')
 OUT = Path('formal_backtest_contract_status.json')
 EXPECTED_V82_LADDER = [10, 20, 30, 45, 60, 75, 85, 95, 100]
-EXPECTED_US_BOND_WEIGHTS = {'SGOV_BOND_BUCKET': 0.50, 'SPSB': 0.35, 'BNDW': 0.15}
+EXPECTED_US_BOND_WEIGHTS = {'SGOV_BOND_BUCKET': 0.70, 'SPSB': 0.30}
 EXPECTED_TW_BOND_WEIGHTS = {'00859B': 0.80, '00860B': 0.20}
-EXPECTED_ENGINE_BONDS = ['SGOV_BOND_BUCKET', 'SPSB', 'BNDW', '00859B', '00860B']
+EXPECTED_ENGINE_BONDS = ['SGOV_BOND_BUCKET', 'SPSB', '00859B', '00860B']
 EXPECTED_LIFE_STAGE_SPLITS = {
     '1': [50, 50], '2': [70, 30], '3': [50, 50], '4': [60, 40],
     '5': [30, 70], '6': [20, 80], '7': [50, 50], '8': [50, 50],
@@ -63,6 +63,7 @@ def main():
     v70_contract = lock.get('v70_output_contract', {})
     eq = pools.get('equity_examples', [])
     bond_primary = pools.get('bond_primary_examples', [])
+    extended_bonds = set(lock.get('existing_holding_or_extended_candidates', {}).get('bond', []))
     engine_stocks = extract_literal_dict_keys(engine, 'STOCKS')
     engine_bonds = extract_literal_dict_keys(engine, 'BONDS')
     deployment_ladder = deployment_lock.get('deployment_completion_ladder', [])
@@ -79,20 +80,22 @@ def main():
 
     checks = {
         'candidate_lock_present': bool(lock),
-        'mentor_v36_is_strategic_and_candidate_source': lock.get('source_of_truth', {}).get('file') == 'Mentor.md' and lock.get('source_of_truth', {}).get('source_version') == 'v3.6.0',
+        'mentor_v37_is_strategic_and_candidate_source': lock.get('source_of_truth', {}).get('file') == 'Mentor.md' and lock.get('source_of_truth', {}).get('source_version') == 'v3.7.0',
         'mentor_owns_S0_B0': gov.get('strategic_allocator_rule') == 'Mentor.md',
         'v70_2_html_is_tactical_executable_source': gov.get('tactical_allocator_executable_rule') == 'V70_2.html',
         'v70_output_contract_v111_locked': gov.get('tactical_allocator_output_contract_version') == 'v1.1.1' and v70_contract.get('version') == 'v1.1.1',
-        'v70_16_v341_is_tactical_explanatory_source': gov.get('tactical_allocator_explanatory_rule') == 'V70_16白皮書.md' and gov.get('tactical_allocator_explanatory_version') == 'v3.4.1',
+        'v70_16_v350_is_tactical_explanatory_source': gov.get('tactical_allocator_explanatory_rule') == 'V70_16白皮書.md' and gov.get('tactical_allocator_explanatory_version') == 'v3.5.0',
         'v70_life_stage_metadata_contract': v70_contract.get('life_stage_metadata_required') == ['lifeStageCode', 'lifeStageLabel'],
         'v70_does_not_select_individual_assets': gov.get('v70_may_select_individual_assets') is False and v70_contract.get('v70_outputs_only_total_budgets') is True,
         'v82_is_equity_execution_source': gov.get('equity_execution_rule') == 'V82.md',
-        'bondv75_is_bond_execution_source': gov.get('bond_execution_rule') == '債券V75.md' and gov.get('bond_execution_version') == 'v2.4.0',
+        'bondv75_is_bond_execution_source': gov.get('bond_execution_rule') == '債券V75.md' and gov.get('bond_execution_version') == 'v2.5.0',
         'mentor_does_not_hardcode_current_bond_weights': gov.get('mentor_may_hardcode_current_run_bond_weights') is False,
         'bondv75_owns_bond_target_maps': gov.get('bondv75_owns_bond_subbucket_and_security_target_weights') is True,
         'bondv75_life_stage_subbucket_map_locked': bond_policy.get('life_stage_us_taiwan_bond_subbucket_pct') == EXPECTED_LIFE_STAGE_SPLITS,
-        'bondv75_us_50_35_15_locked': bond_policy.get('us_bond_subbucket_target_weights') == EXPECTED_US_BOND_WEIGHTS,
+        'bondv75_us_70_30_locked': bond_policy.get('us_bond_subbucket_target_weights') == EXPECTED_US_BOND_WEIGHTS,
         'bondv75_taiwan_80_20_locked': bond_policy.get('taiwan_bond_subbucket_target_weights') == EXPECTED_TW_BOND_WEIGHTS,
+        'bndw_removed_from_generic_new_allocation': 'BNDW' not in set(bond_primary) and bond_policy.get('bndw_generic_new_allocation_allowed') is False,
+        'bndw_preserved_for_existing_holding_management': 'BNDW' in extended_bonds and bond_policy.get('bndw_existing_holding_management_only') is True,
         'bondv75_targets_still_subject_to_market_safety': bond_policy.get('deployment_still_subject_to_bond_v75_market_safety_and_wait_rules') is True,
         'sgov_dual_role_explicit': roles.get('parking_logical_asset') == 'SGOV_DRY_POWDER_BUCKET' and roles.get('bond_bucket_sgov_logical_asset') == 'SGOV_BOND_BUCKET' and roles.get('parking_ticker') == 'SGOV' and roles.get('bond_bucket_sgov_ticker') == 'SGOV',
         'mother_backtest_source_resolved': bool(mother_lock) and mother_src.get('file') == '母規則回測.md' and mother_src.get('source_last_modified_taipei') == '2026-09-10 00:56',
@@ -116,7 +119,7 @@ def main():
         'main_end_2026_08_31_or_later': bool(end and end >= '2026-09-01'),
         'legacy_workflow_not_formal_authority': stale_legacy_window,
         'engine_equity_universe_matches_mentor_examples': engine_stocks == eq,
-        'engine_primary_bond_universe_matches_mentor': engine_bonds == EXPECTED_ENGINE_BONDS and {'SGOV','SPSB','BNDW','00859B','00860B'}.issubset(set(bond_primary)),
+        'engine_primary_bond_universe_matches_mentor': engine_bonds == EXPECTED_ENGINE_BONDS and {'SGOV','SPSB','00859B','00860B'}.issubset(set(bond_primary)) and 'BNDW' not in engine_bonds,
         'no_fixed_mentor_bond_weights_in_lock': 'target_weights_within_subbucket' not in lock,
         'case1_dynamic_portfolio_implemented': not case1_blocked,
         'explicit_buy_and_hold_comparator': contains_any(engine, ['Case2_AnnualSingle', 'annual_equal', 'Buy & Hold', 'buy_and_hold']),
@@ -145,7 +148,7 @@ def main():
 
     readiness_checks = {k: v for k, v in checks.items() if k != 'legacy_workflow_not_formal_authority'}
     status = {
-        'schema_version': 10,
+        'schema_version': 11,
         'formal_backtest_ready': all(readiness_checks.values()),
         'engine': str(ENGINE),
         'observed_engine_start': start,
@@ -165,9 +168,9 @@ def main():
         'checks': checks,
         'failed_checks': [k for k, v in readiness_checks.items() if not v],
         'policy': (
-            'Mentor v3.6 owns strategic S0/B0, current candidate universes and client constraints; V70_2.html Output Contract v1.1.1 owns tactical C/T and total equity/bond/V70_ORIGINAL_DRY_POWDER budgets only; '
-            'V82 owns equity security-level execution; BondV75 v2.4 owns bond life-stage/subbucket/security target maps and bond deployment/safety decisions. '
-            'The formal mother-backtest design was located in Library (母規則回測.md, 2026-09-10 00:56) and governs experiment structure, fairness, PIT/T+1, accounting, metrics and robustness, but its older embedded asset list cannot override a later formal Mentor candidate-universe definition. '
+            'Mentor v3.7 owns strategic S0/B0, current candidate universes and client constraints; V70_2.html Output Contract v1.1.1 owns tactical C/T and total equity/bond/V70_ORIGINAL_DRY_POWDER budgets only; '
+            'V82 owns equity security-level execution; BondV75 v2.5 owns bond life-stage/subbucket/security target maps and deployment/safety decisions. US generic new bond allocation is SGOV 70% / SPSB 30%; BNDW is existing-holding management only. '
+            'The formal mother-backtest design in Library governs experiment structure, fairness, PIT/T+1, accounting, metrics and robustness, but its older embedded asset list cannot override a later formal Mentor candidate-universe definition. '
             'The current mechanical benchmark universe must cover all current generic primary Mentor examples, including Taiwan-listed 00859B/00860B with TWD accounting. Actual-asset price/total-return data must pass formal data QA; provider discontinuities or unavailable history cannot be silently repaired with NAV/index/proxy data. '
             'Single-ETF results are benchmark-only; the formal dynamic strategy is the V82+BondV75 common-capital Portfolio Case 1. SGOV bond and dry-powder roles are separate. Only formal_backtest_ready=true authorizes final strategy performance conclusions.'
         )
