@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install pandas yfinance
+        run: pip install --disable-pip-version-check numpy pandas scipy scikit-learn requests yfinance
       - name: Run price history discontinuity QA
         run: python formal_price_history_discontinuity_qa.py
       - name: Show outputs
@@ -29,3 +29,4 @@ jobs:
         with:
           name: formal-price-history-discontinuity-qa
           path: formal_price_history_discontinuity_qa_output/
+          if-no-files-found: error
