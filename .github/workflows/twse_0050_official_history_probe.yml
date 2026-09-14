@@ -1,0 +1,32 @@
+name: TWSE 0050 Official History Probe
+
+on:
+  push:
+    paths:
+      - 'twse_0050_official_history_probe.py'
+      - '.github/workflows/twse_0050_official_history_probe.yml'
+  workflow_dispatch:
+
+jobs:
+  twse-0050-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check pandas requests
+      - name: Fetch official TWSE 0050 history
+        run: python twse_0050_official_history_probe.py
+      - name: Show status
+        run: |
+          cat twse_0050_official_history_probe_output/status.json
+          cat twse_0050_official_history_probe_output/0050_twse_event_window_2013-12-20_2014-01-10.csv
+      - name: Upload official-history artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: twse-0050-official-history
+          path: twse_0050_official_history_probe_output/
+          if-no-files-found: error
