@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "source_of_truth": {
     "file": "Mentor.md",
     "drive_file_id": "1oeiito_HRs10w50YjqImIfir8R2qdBdw",
@@ -11,13 +11,17 @@
   "governance": {
     "strategic_allocator_rule": "Mentor.md",
     "tactical_allocator_executable_rule": "V70_2.html",
+    "tactical_allocator_output_contract_version": "v1.1.1",
     "tactical_allocator_explanatory_rule": "V70_16白皮書.md",
+    "tactical_allocator_explanatory_version": "v3.4.1",
     "equity_execution_rule": "V82.md",
     "bond_execution_rule": "債券V75.md",
+    "bond_execution_version": "v2.4.0",
     "backtest_design_rule": "母規則回測.md",
     "backtest_design_file_status": "NOT_FOUND_IN_CURRENT_DRIVE_ROOT_REQUIRES_RELOCATION_OR_CONFIRMATION",
     "v70_may_select_individual_assets": false,
     "mentor_may_hardcode_current_run_bond_weights": false,
+    "bondv75_owns_bond_subbucket_and_security_target_weights": true,
     "unused_execution_budget_destination": "SGOV_DRY_POWDER_BUCKET",
     "sgov_bond_and_dry_powder_must_be_separate": true
   },
@@ -27,6 +31,40 @@
   },
   "existing_holding_or_extended_candidates": {
     "bond": ["SHY", "IEF", "SPIB", "TLT", "SPLB", "00719B"]
+  },
+  "bond_v75_execution_policy": {
+    "source_file": "債券V75.md",
+    "source_version": "v2.4.0",
+    "life_stage_us_taiwan_bond_subbucket_pct": {
+      "1": [50, 50],
+      "2": [70, 30],
+      "3": [50, 50],
+      "4": [60, 40],
+      "5": [30, 70],
+      "6": [20, 80],
+      "7": [50, 50],
+      "8": [50, 50],
+      "9": [40, 60],
+      "10": [40, 60]
+    },
+    "us_bond_subbucket_target_weights": {
+      "SGOV_BOND_BUCKET": 0.50,
+      "SPSB": 0.35,
+      "BNDW": 0.15
+    },
+    "taiwan_bond_subbucket_target_weights": {
+      "00859B": 0.80,
+      "00860B": 0.20
+    },
+    "weights_are_long_term_target_map_not_forced_cross_border_transfer": true,
+    "deployment_still_subject_to_bond_v75_market_safety_and_wait_rules": true
+  },
+  "v70_output_contract": {
+    "version": "v1.1.1",
+    "run_id_supported": true,
+    "life_stage_metadata_required": ["lifeStageCode", "lifeStageLabel"],
+    "v70_outputs_only_total_budgets": true,
+    "required_budget_outputs": ["STOCK_TACTICAL_BUDGET", "BOND_TACTICAL_BUDGET", "V70_ORIGINAL_DRY_POWDER"]
   },
   "asset_roles": {
     "parking_logical_asset": "SGOV_DRY_POWDER_BUCKET",
@@ -52,11 +90,12 @@
   },
   "scope_notes": [
     "Mentor v3.6 owns long-run S0/B0, candidate universes, client constraints and project state; it does not decide current-run per-asset deployment sizes.",
-    "V70_2.html is the executable tactical small-knob source: it receives S0/B0, computes macro-driven C and T, and outputs only total equity, total bond and V70_ORIGINAL_DRY_POWDER budgets. It must not select individual stocks or bonds.",
-    "V82 owns stock/equity-ETF security-level execution; BondV75 owns bond/bond-ETF security-level selection, sizing and deployment.",
-    "Mentor v3.6 explicitly forbids hardcoding SGOV 50% or any other current-run bond weight. Earlier fixed 50/35/15 and 80/20 values are not Mentor-owned formal current-run weights.",
+    "V70_2.html Output Contract v1.1.1 is the executable tactical small-knob source: it receives S0/B0, computes macro-driven C and T, and outputs only total equity, total bond and V70_ORIGINAL_DRY_POWDER budgets plus run/life-stage metadata. It must not select individual stocks or bonds.",
+    "V82 owns stock/equity-ETF security-level execution.",
+    "BondV75 v2.4 owns the formal bond execution map: life-stage US/Taiwan bond-sub-bucket targets, US SGOV/SPSB/BNDW 50/35/15, Taiwan 00859B/00860B 80/20, and the market-safety/deployment decision.",
+    "Mentor v3.6 forbids attributing SGOV 50% or other per-bond current-run weights to Mentor. Fixed bond target maps, where applicable, belong to BondV75, not Mentor or V70.",
     "SGOV_BOND_BUCKET and SGOV_DRY_POWDER_BUCKET share ticker SGOV but are separate accounting roles and must never be double-counted.",
     "Candidate examples are a generic research starting universe, not mandatory holdings. Client-specific preferred/existing assets require a separate client snapshot when backtested.",
-    "This lock records the current Mentor architecture for reproducibility and does not alter the formal strategy rules."
+    "This lock records current formal architecture for reproducibility and does not alter the formal strategy rules."
   ]
 }
