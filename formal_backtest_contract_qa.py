@@ -8,6 +8,7 @@ LEGACY_WORKFLOW = Path('.github/workflows/formal_backtest.yml')
 LOCK = Path('formal_candidate_universe_lock.json')
 DEPLOYMENT_LOCK = Path('formal_v82_deployment_lock.json')
 MOTHER_LOCK = Path('formal_mother_backtest_lock.json')
+PRICE_LOCK = Path('formal_price_data_lock.json')
 OUT = Path('formal_backtest_contract_status.json')
 EXPECTED_V82_LADDER = [10, 20, 30, 45, 60, 75, 85, 95, 100]
 EXPECTED_US_BOND_WEIGHTS = {'SGOV_BOND_BUCKET': 0.50, 'SPSB': 0.35, 'BNDW': 0.15}
@@ -51,6 +52,7 @@ def main():
     lock = json.loads(LOCK.read_text(encoding='utf-8')) if LOCK.exists() else {}
     deployment_lock = json.loads(DEPLOYMENT_LOCK.read_text(encoding='utf-8')) if DEPLOYMENT_LOCK.exists() else {}
     mother_lock = json.loads(MOTHER_LOCK.read_text(encoding='utf-8')) if MOTHER_LOCK.exists() else {}
+    price_lock = json.loads(PRICE_LOCK.read_text(encoding='utf-8')) if PRICE_LOCK.exists() else {}
 
     start = extract_const(engine, 'START') or ('2005-01-01' if '2005-01-01..2026-08-31' in engine else None)
     end = extract_const(engine, 'END') or ('2026-09-01' if '2005-01-01..2026-08-31' in engine else None)
@@ -70,6 +72,7 @@ def main():
     mother_windows = mother_lock.get('formal_windows', {})
     mother_exp = mother_lock.get('experiment_structure', {})
     mother_outputs = mother_lock.get('required_outputs', {})
+    price_assets = price_lock.get('assets', {})
 
     stale_legacy_window = contains_any(workflow, ['Restrict formal evaluation window to 2019-2026', "start=pd.Timestamp('2019-01-01')", "end=pd.Timestamp('2026-08-26')"])
     case1_blocked = contains_any(engine, ['BLOCKED_MISSING_COMPLETE_PIT_T1_DYNAMIC_EXECUTION_PIPELINE', "'status': 'BLOCKED", '"status":"BLOCKED'])
@@ -101,6 +104,9 @@ def main():
         'mother_backtest_dynamic_primary_is_common_pool': mother_exp.get('dynamic_strategy_primary_level') == 'portfolio_common_capital_pool',
         'mother_backtest_single_etf_is_benchmark_only': mother_exp.get('single_etf_results_role') == 'benchmark_only_not_V82_single_security_strategy_validation',
         'mother_backtest_robustness_outputs_locked': all(mother_outputs.get(k) is True for k in ['opportunity_cost','is_oos','walk_forward','sensitivity','annual_risk_table','withdrawal_period_risk']),
+        'price_data_lock_present': bool(price_lock),
+        'all_current_primary_price_data_ready': price_lock.get('all_current_primary_price_data_ready') is True,
+        '0050_price_data_ready': price_assets.get('0050', {}).get('formal_price_data_ready') is True,
         'v82_deployment_lock_present': bool(deployment_lock),
         'v82_deployment_ladder_matches_latest_formal_rule': deployment_ladder == EXPECTED_V82_LADDER,
         'v82_owns_formal_deployment_ratios': deployment_gov.get('v82_owns_formal_deployment_ratios') is True,
@@ -139,7 +145,7 @@ def main():
 
     readiness_checks = {k: v for k, v in checks.items() if k != 'legacy_workflow_not_formal_authority'}
     status = {
-        'schema_version': 9,
+        'schema_version': 10,
         'formal_backtest_ready': all(readiness_checks.values()),
         'engine': str(ENGINE),
         'observed_engine_start': start,
@@ -153,6 +159,7 @@ def main():
         'locked_v82_deployment_ladder_pct': deployment_ladder,
         'locked_mother_backtest_source': mother_src,
         'locked_mother_backtest_experiment_structure': mother_exp,
+        'locked_price_data_status': price_lock,
         'observed_engine_equity_assets': engine_stocks,
         'observed_engine_bond_assets': engine_bonds,
         'checks': checks,
@@ -161,8 +168,8 @@ def main():
             'Mentor v3.6 owns strategic S0/B0, current candidate universes and client constraints; V70_2.html Output Contract v1.1.1 owns tactical C/T and total equity/bond/V70_ORIGINAL_DRY_POWDER budgets only; '
             'V82 owns equity security-level execution; BondV75 v2.4 owns bond life-stage/subbucket/security target maps and bond deployment/safety decisions. '
             'The formal mother-backtest design was located in Library (母規則回測.md, 2026-09-10 00:56) and governs experiment structure, fairness, PIT/T+1, accounting, metrics and robustness, but its older embedded asset list cannot override a later formal Mentor candidate-universe definition. '
-            'The current mechanical benchmark universe must cover all current generic primary Mentor examples, including Taiwan-listed 00859B/00860B with TWD accounting. Single-ETF results are benchmark-only; the formal dynamic strategy is the V82+BondV75 common-capital Portfolio Case 1. '
-            'SGOV bond and dry-powder roles are separate. Only formal_backtest_ready=true authorizes final strategy performance conclusions.'
+            'The current mechanical benchmark universe must cover all current generic primary Mentor examples, including Taiwan-listed 00859B/00860B with TWD accounting. Actual-asset price/total-return data must pass formal data QA; provider discontinuities or unavailable history cannot be silently repaired with NAV/index/proxy data. '
+            'Single-ETF results are benchmark-only; the formal dynamic strategy is the V82+BondV75 common-capital Portfolio Case 1. SGOV bond and dry-powder roles are separate. Only formal_backtest_ready=true authorizes final strategy performance conclusions.'
         )
     }
     OUT.write_text(json.dumps(status, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
