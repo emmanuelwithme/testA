@@ -1,0 +1,29 @@
+name: V70.2 5Y Breakeven Equivalence QA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'v70_t5yie_equivalence_qa.py'
+      - 'v70_treasury_rates_probe.py'
+      - '.github/workflows/v70_t5yie_equivalence_qa.yml'
+
+jobs:
+  t5yie-equivalence-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas requests
+      - name: Compare Treasury 5Y nominal-real spread with official FRED T5YIE
+        run: python v70_t5yie_equivalence_qa.py
+      - name: Upload equivalence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v70-t5yie-equivalence-qa
+          path: v70_t5yie_equivalence_qa_output/
+          if-no-files-found: error
