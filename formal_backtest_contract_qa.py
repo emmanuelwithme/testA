@@ -9,6 +9,13 @@ LOCK = Path('formal_candidate_universe_lock.json')
 DEPLOYMENT_LOCK = Path('formal_v82_deployment_lock.json')
 OUT = Path('formal_backtest_contract_status.json')
 EXPECTED_V82_LADDER = [10, 20, 30, 45, 60, 75, 85, 95, 100]
+EXPECTED_US_BOND_WEIGHTS = {'SGOV_BOND_BUCKET': 0.50, 'SPSB': 0.35, 'BNDW': 0.15}
+EXPECTED_TW_BOND_WEIGHTS = {'00859B': 0.80, '00860B': 0.20}
+EXPECTED_LIFE_STAGE_SPLITS = {
+    '1': [50, 50], '2': [70, 30], '3': [50, 50], '4': [60, 40],
+    '5': [30, 70], '6': [20, 80], '7': [50, 50], '8': [50, 50],
+    '9': [40, 60], '10': [40, 60],
+}
 
 
 def extract_const(text: str, name: str):
@@ -47,6 +54,8 @@ def main():
     pools = lock.get('generic_priority_candidate_pools', {})
     roles = lock.get('asset_roles', {})
     gov = lock.get('governance', {})
+    bond_policy = lock.get('bond_v75_execution_policy', {})
+    v70_contract = lock.get('v70_output_contract', {})
     eq = pools.get('equity_examples', [])
     bond_primary = pools.get('bond_primary_examples', [])
     engine_stocks = extract_literal_dict_keys(engine, 'STOCKS')
@@ -62,11 +71,18 @@ def main():
         'mentor_v36_is_strategic_and_candidate_source': lock.get('source_of_truth', {}).get('file') == 'Mentor.md' and lock.get('source_of_truth', {}).get('source_version') == 'v3.6.0',
         'mentor_owns_S0_B0': gov.get('strategic_allocator_rule') == 'Mentor.md',
         'v70_2_html_is_tactical_executable_source': gov.get('tactical_allocator_executable_rule') == 'V70_2.html',
-        'v70_16_is_tactical_explanatory_source': gov.get('tactical_allocator_explanatory_rule') == 'V70_16白皮書.md',
-        'v70_does_not_select_individual_assets': gov.get('v70_may_select_individual_assets') is False,
+        'v70_output_contract_v111_locked': gov.get('tactical_allocator_output_contract_version') == 'v1.1.1' and v70_contract.get('version') == 'v1.1.1',
+        'v70_16_v341_is_tactical_explanatory_source': gov.get('tactical_allocator_explanatory_rule') == 'V70_16白皮書.md' and gov.get('tactical_allocator_explanatory_version') == 'v3.4.1',
+        'v70_life_stage_metadata_contract': v70_contract.get('life_stage_metadata_required') == ['lifeStageCode', 'lifeStageLabel'],
+        'v70_does_not_select_individual_assets': gov.get('v70_may_select_individual_assets') is False and v70_contract.get('v70_outputs_only_total_budgets') is True,
         'v82_is_equity_execution_source': gov.get('equity_execution_rule') == 'V82.md',
-        'bondv75_is_bond_execution_source': gov.get('bond_execution_rule') == '債券V75.md',
+        'bondv75_is_bond_execution_source': gov.get('bond_execution_rule') == '債券V75.md' and gov.get('bond_execution_version') == 'v2.4.0',
         'mentor_does_not_hardcode_current_bond_weights': gov.get('mentor_may_hardcode_current_run_bond_weights') is False,
+        'bondv75_owns_bond_target_maps': gov.get('bondv75_owns_bond_subbucket_and_security_target_weights') is True,
+        'bondv75_life_stage_subbucket_map_locked': bond_policy.get('life_stage_us_taiwan_bond_subbucket_pct') == EXPECTED_LIFE_STAGE_SPLITS,
+        'bondv75_us_50_35_15_locked': bond_policy.get('us_bond_subbucket_target_weights') == EXPECTED_US_BOND_WEIGHTS,
+        'bondv75_taiwan_80_20_locked': bond_policy.get('taiwan_bond_subbucket_target_weights') == EXPECTED_TW_BOND_WEIGHTS,
+        'bondv75_targets_still_subject_to_market_safety': bond_policy.get('deployment_still_subject_to_bond_v75_market_safety_and_wait_rules') is True,
         'sgov_dual_role_explicit': roles.get('parking_logical_asset') == 'SGOV_DRY_POWDER_BUCKET' and roles.get('bond_bucket_sgov_logical_asset') == 'SGOV_BOND_BUCKET' and roles.get('parking_ticker') == 'SGOV' and roles.get('bond_bucket_sgov_ticker') == 'SGOV',
         'mother_backtest_source_resolved': gov.get('backtest_design_file_status') != 'NOT_FOUND_IN_CURRENT_DRIVE_ROOT_REQUIRES_RELOCATION_OR_CONFIRMATION',
         'v82_deployment_lock_present': bool(deployment_lock),
@@ -108,23 +124,27 @@ def main():
 
     readiness_checks = {k: v for k, v in checks.items() if k != 'legacy_workflow_not_formal_authority'}
     status = {
-        'schema_version': 6,
+        'schema_version': 7,
         'formal_backtest_ready': all(readiness_checks.values()),
         'engine': str(ENGINE),
         'observed_engine_start': start,
         'observed_engine_end_exclusive': end,
         'locked_equity_candidate_examples': eq,
         'locked_bond_primary_examples': bond_primary,
+        'locked_bondv75_life_stage_splits': bond_policy.get('life_stage_us_taiwan_bond_subbucket_pct', {}),
+        'locked_bondv75_us_weights': bond_policy.get('us_bond_subbucket_target_weights', {}),
+        'locked_bondv75_taiwan_weights': bond_policy.get('taiwan_bond_subbucket_target_weights', {}),
+        'locked_v70_output_contract': v70_contract,
         'locked_v82_deployment_ladder_pct': deployment_ladder,
         'observed_engine_equity_assets': engine_stocks,
         'observed_engine_bond_assets': engine_bonds,
         'checks': checks,
         'failed_checks': [k for k, v in readiness_checks.items() if not v],
         'policy': (
-            'Mentor v3.6 owns strategic S0/B0, candidate universes and client constraints; V70_2.html owns tactical C/T and total equity/bond/dry-powder budgets only; '
-            'V82 owns equity security-level execution; BondV75 owns bond security-level execution. SGOV bond and dry-powder roles are separate. '
-            'No fixed current-run bond weights may be attributed to Mentor. The missing standalone 母規則回測.md is a formal certification blocker; '
-            'only formal_backtest_ready=true authorizes final strategy performance conclusions.'
+            'Mentor v3.6 owns strategic S0/B0, candidate universes and client constraints; V70_2.html Output Contract v1.1.1 owns tactical C/T and total equity/bond/V70_ORIGINAL_DRY_POWDER budgets only; '
+            'V82 owns equity security-level execution; BondV75 v2.4 owns bond life-stage subbucket target maps, per-security target maps, and bond deployment/safety decisions. '
+            'Fixed BondV75 target maps must not be attributed to Mentor or V70. SGOV bond and dry-powder roles are separate. '
+            'The missing standalone 母規則回測.md is a formal certification blocker; only formal_backtest_ready=true authorizes final strategy performance conclusions.'
         )
     }
     OUT.write_text(json.dumps(status, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
