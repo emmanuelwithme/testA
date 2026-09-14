@@ -67,6 +67,7 @@ def main() -> int:
 
     # Current formal architecture: Mentor v3.6 owns S0/B0; V70_2.html is the
     # executable tactical allocator and V70_16白皮書.md is its explanatory SOT.
+    # 母規則回測.md (Library, 2026-09-10 00:56) owns the formal experiment/PIT/T+1 contract.
     # Missing historical PIT values remain NA / Insufficient Data; never backfill.
     tga = fetch_tga_paged()
     tga_first, tga_last = tga.index.min(), tga.index.max()
@@ -177,13 +178,14 @@ def main() -> int:
         'architecture': 'Mentor v3.6 S0/B0 -> V70_2 tactical C/T total budgets -> V82/BondV75 security execution',
         'v70_executable_source': 'V70_2.html Output Contract v1.1.1',
         'v70_explanatory_source': 'V70_16白皮書.md v3.4.1',
+        'mother_backtest_source': '母規則回測.md Library snapshot 2026-09-10 00:56',
         'formal_window': '2005-01-01..2026-08-31',
         'policy': {
             'point_in_time_only': True,
             'no_future_fill': True,
             'no_neutral_imputation': True,
             'missing_before_first_valid_pit': 'NA / Insufficient Data',
-            'same_day_close_signal_execution': 'T+1 required by user-explicit formal backtest contract; standalone 母規則回測.md currently unresolved in Drive root',
+            'same_day_close_signal_execution': 'T+1 required by formal 母規則回測.md; signals formed from same-day close data may execute no earlier than the next permitted trading session',
             'availability_vs_execution': 'formal_pit_ready means historical availability is mapped; strategy execution must still occur no earlier than the next permitted T+1 execution session',
             'diagnostic_tplus1_mapper': 'weekday next-business-day mapper for unresolved sources is engineering proof only and never overrides missing publication evidence',
         },
@@ -195,7 +197,7 @@ def main() -> int:
         'formal_pit_unresolved': unresolved,
         'formal_backtest_ready': False,
         'qa_status': 'PARTIAL_FORMAL_PIT_READY_REMAINDER_BLOCKED',
-        'qa_note': 'TGA and WALCL now have official availability conventions plus deterministic federal-business-day mappings. Remaining inputs stay blocked rather than guessed. PIT input readiness alone does not authorize final formal backtest conclusions.',
+        'qa_note': 'TGA and WALCL have official availability conventions plus deterministic federal-business-day mappings. Remaining inputs stay blocked rather than guessed. PIT input readiness alone does not authorize final formal backtest conclusions.',
     }
     REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(report, ensure_ascii=False, indent=2))
