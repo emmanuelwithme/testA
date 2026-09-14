@@ -1,0 +1,26 @@
+name: V70.2 Sahm Release Map QA
+
+on:
+  push:
+    paths:
+      - 'v70_sahm_release_map_qa.py'
+      - '.github/workflows/v70_sahm_release_map_qa.yml'
+  workflow_dispatch:
+
+jobs:
+  sahm-release-map-qa:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas requests
+      - name: Build official BLS Employment Situation release map
+        run: python v70_sahm_release_map_qa.py
+      - name: Upload Sahm release-map QA artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v70-sahm-release-map-qa
+          path: v70_sahm_release_map_qa_output/
