@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "source_of_truth": {
     "file": "Mentor.md",
     "drive_file_id": "1oeiito_HRs10w50YjqImIfir8R2qdBdw",
@@ -18,7 +18,8 @@
     "bond_execution_rule": "債券V75.md",
     "bond_execution_version": "v2.4.0",
     "backtest_design_rule": "母規則回測.md",
-    "backtest_design_file_status": "NOT_FOUND_IN_CURRENT_DRIVE_ROOT_REQUIRES_RELOCATION_OR_CONFIRMATION",
+    "backtest_design_file_status": "RESOLVED_IN_LIBRARY_2026-09-10_0056",
+    "backtest_design_lock_file": "formal_mother_backtest_lock.json",
     "v70_may_select_individual_assets": false,
     "mentor_may_hardcode_current_run_bond_weights": false,
     "bondv75_owns_bond_subbucket_and_security_target_weights": true,
@@ -96,6 +97,7 @@
     "Mentor v3.6 forbids attributing SGOV 50% or other per-bond current-run weights to Mentor. Fixed bond target maps, where applicable, belong to BondV75, not Mentor or V70.",
     "SGOV_BOND_BUCKET and SGOV_DRY_POWDER_BUCKET share ticker SGOV but are separate accounting roles and must never be double-counted.",
     "Candidate examples are a generic research starting universe, not mandatory holdings. Client-specific preferred/existing assets require a separate client snapshot when backtested.",
+    "The formal mother-backtest design was located in Library as 母規則回測.md, last modified 2026-09-10 00:56, and is reproducibly summarized by formal_mother_backtest_lock.json. Its experiment-design authority does not override later Mentor candidate-universe authority.",
     "This lock records current formal architecture for reproducibility and does not alter the formal strategy rules."
   ]
 }
