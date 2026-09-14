@@ -1,0 +1,31 @@
+name: Formal Price History Discontinuity QA
+
+on:
+  push:
+    paths:
+      - 'formal_price_history_discontinuity_qa.py'
+      - '.github/workflows/formal_price_history_discontinuity_qa.yml'
+  workflow_dispatch:
+
+jobs:
+  price-history-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install pandas yfinance
+      - name: Run price history discontinuity QA
+        run: python formal_price_history_discontinuity_qa.py
+      - name: Show outputs
+        run: |
+          cat formal_price_history_discontinuity_qa_output/status.json
+          cat formal_price_history_discontinuity_qa_output/history_summary.csv
+          cat formal_price_history_discontinuity_qa_output/flagged_jumps.csv || true
+      - name: Upload QA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: formal-price-history-discontinuity-qa
+          path: formal_price_history_discontinuity_qa_output/
