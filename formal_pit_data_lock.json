@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "as_of_taipei": "2026-09-14 21:38",
+  "source_workflow": "V70.2 PIT Availability QA",
+  "source_run_id": 34850351853,
+  "source_artifact": {
+    "name": "v70-pit-availability-qa",
+    "artifact_id": 10351370253,
+    "sha256": "dfee17ffe170b704ce3dc34e6f1585bd116debae85238e1a76c17ea5a88b2927"
+  },
+  "formal_window": ["2005-01-01", "2026-08-31"],
+  "policy": {
+    "point_in_time_only": true,
+    "t_plus_1_required": true,
+    "no_future_fill": true,
+    "no_neutral_imputation": true,
+    "precoverage_values": "NA_ONLY",
+    "same_day_use_forbidden": true
+  },
+  "required_inputs": ["TGA", "WALCL", "RRP", "5Y_BREAKEVEN", "REAL_10Y", "SAHM_RULE"],
+  "formal_pit_ready": {
+    "TGA": true,
+    "WALCL": true,
+    "RRP": true,
+    "5Y_BREAKEVEN": false,
+    "REAL_10Y": true,
+    "SAHM_RULE": false
+  },
+  "ready_count": 4,
+  "required_count": 6,
+  "unresolved": ["5Y_BREAKEVEN", "SAHM_RULE"],
+  "all_required_pit_ready": false,
+  "evidence": {
+    "TGA": "Official Treasury DTS following-business-day publication convention with federal-business-day mapping",
+    "WALCL": "Official Federal Reserve H.4.1 Thursday release convention with conservative federal-business-day mapping",
+    "RRP": "Official NY Fed result summary published after operation completion; totalAmtAccepted semantics locked; next-federal-business-day availability used conservatively",
+    "REAL_10Y": "Official Treasury Daily PAR Real Yield Curve; FBNY indicative quotations around 3:30 PM each business day; TC_10YEAR semantics locked; next-federal-business-day availability used conservatively",
+    "5Y_BREAKEVEN": "Treasury nominal-minus-real candidate exists but formal equivalence/publication QA remains open",
+    "SAHM_RULE": "Official SAHMREALTIME snapshot exists but historical release-availability mapping remains open"
+  },
+  "formal_backtest_ready": false,
+  "note": "This lock is a hard readiness gate. It records verified PIT status only and does not change Mentor, V70_2, V82, BondV75 or mother-backtest strategy rules."
+}
