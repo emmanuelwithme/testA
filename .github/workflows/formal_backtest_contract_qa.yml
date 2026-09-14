@@ -13,8 +13,10 @@ on:
       - 'formal_v82_deployment_lock.json'
       - 'formal_mother_backtest_lock.json'
       - 'formal_price_data_lock.json'
+      - 'formal_pit_data_lock.json'
       - 'validate_formal_candidate_universe.py'
       - 'formal_backtest_contract_qa.py'
+      - 'formal_contract_pit_gate.py'
       - '.github/workflows/formal_backtest_contract_qa.yml'
 
 jobs:
@@ -30,6 +32,8 @@ jobs:
         run: python validate_formal_candidate_universe.py
       - name: Evaluate formal backtest contract readiness
         run: python formal_backtest_contract_qa.py
+      - name: Apply hard PIT readiness gate
+        run: python formal_contract_pit_gate.py
       - name: Show readiness status
         run: cat formal_backtest_contract_status.json
       - name: Upload readiness artifact
