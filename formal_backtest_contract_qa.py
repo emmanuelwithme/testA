@@ -12,6 +12,7 @@ OUT = Path('formal_backtest_contract_status.json')
 EXPECTED_V82_LADDER = [10, 20, 30, 45, 60, 75, 85, 95, 100]
 EXPECTED_US_BOND_WEIGHTS = {'SGOV_BOND_BUCKET': 0.50, 'SPSB': 0.35, 'BNDW': 0.15}
 EXPECTED_TW_BOND_WEIGHTS = {'00859B': 0.80, '00860B': 0.20}
+EXPECTED_ENGINE_BONDS = ['SGOV_BOND_BUCKET', 'SPSB', 'BNDW', '00859B', '00860B']
 EXPECTED_LIFE_STAGE_SPLITS = {
     '1': [50, 50], '2': [70, 30], '3': [50, 50], '4': [60, 40],
     '5': [30, 70], '6': [20, 80], '7': [50, 50], '8': [50, 50],
@@ -109,8 +110,7 @@ def main():
         'main_end_2026_08_31_or_later': bool(end and end >= '2026-09-01'),
         'legacy_workflow_not_formal_authority': stale_legacy_window,
         'engine_equity_universe_matches_mentor_examples': engine_stocks == eq,
-        'engine_supported_bonds_are_subset_of_mentor_primary': set(engine_bonds).issubset({'SGOV_BOND_BUCKET','SPSB','BNDW'}) and {'SGOV','SPSB','BNDW'}.issubset(set(bond_primary)),
-        'taiwan_primary_bond_candidates_recorded': {'00859B','00860B'}.issubset(set(bond_primary)),
+        'engine_primary_bond_universe_matches_mentor': engine_bonds == EXPECTED_ENGINE_BONDS and {'SGOV','SPSB','BNDW','00859B','00860B'}.issubset(set(bond_primary)),
         'no_fixed_mentor_bond_weights_in_lock': 'target_weights_within_subbucket' not in lock,
         'case1_dynamic_portfolio_implemented': not case1_blocked,
         'explicit_buy_and_hold_comparator': contains_any(engine, ['Case2_AnnualSingle', 'annual_equal', 'Buy & Hold', 'buy_and_hold']),
@@ -139,7 +139,7 @@ def main():
 
     readiness_checks = {k: v for k, v in checks.items() if k != 'legacy_workflow_not_formal_authority'}
     status = {
-        'schema_version': 8,
+        'schema_version': 9,
         'formal_backtest_ready': all(readiness_checks.values()),
         'engine': str(ENGINE),
         'observed_engine_start': start,
@@ -161,7 +161,8 @@ def main():
             'Mentor v3.6 owns strategic S0/B0, current candidate universes and client constraints; V70_2.html Output Contract v1.1.1 owns tactical C/T and total equity/bond/V70_ORIGINAL_DRY_POWDER budgets only; '
             'V82 owns equity security-level execution; BondV75 v2.4 owns bond life-stage/subbucket/security target maps and bond deployment/safety decisions. '
             'The formal mother-backtest design was located in Library (母規則回測.md, 2026-09-10 00:56) and governs experiment structure, fairness, PIT/T+1, accounting, metrics and robustness, but its older embedded asset list cannot override a later formal Mentor candidate-universe definition. '
-            'Single-ETF results are benchmark-only; the formal dynamic strategy is the V82+BondV75 common-capital Portfolio Case 1. SGOV bond and dry-powder roles are separate. Only formal_backtest_ready=true authorizes final strategy performance conclusions.'
+            'The current mechanical benchmark universe must cover all current generic primary Mentor examples, including Taiwan-listed 00859B/00860B with TWD accounting. Single-ETF results are benchmark-only; the formal dynamic strategy is the V82+BondV75 common-capital Portfolio Case 1. '
+            'SGOV bond and dry-powder roles are separate. Only formal_backtest_ready=true authorizes final strategy performance conclusions.'
         )
     }
     OUT.write_text(json.dumps(status, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
