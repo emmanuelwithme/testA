@@ -12,23 +12,27 @@ import backtest_33_models_v2 as base
 # Mentor owns long-run S0/B0, candidate universes and client constraints.
 # V70_2.html receives S0/B0 and outputs only total tactical equity/bond/dry-powder budgets.
 # V82 owns equity security-level execution; 債券V75 owns bond security-level execution.
+# 母規則回測.md owns experiment design/fair comparison; its older embedded asset list
+# does not override the later Mentor candidate universe.
 # This file is the mechanical benchmark layer only and must not invent dynamic
 # V70/V82/BondV75 rules while the complete PIT/T+1 execution pipeline is unfinished.
 STOCKS = {
     'VT': 'VT', 'VOO': 'VOO', 'QQQ': 'QQQ', '0050': '0050.TW',
     'SOXX': 'SOXX', 'PPH': 'PPH', 'NATO': 'NATO.L',
 }
-# Primary US-listed bond candidate examples currently supported by this benchmark's
-# price pipeline. SGOV_BOND_BUCKET is a logical accounting role using ticker SGOV.
-# No current-run bond weights are hardcoded here: BondV75 owns selection/sizing.
+# Latest generic primary bond candidates from Mentor. SGOV_BOND_BUCKET is a logical
+# accounting role sharing physical ticker SGOV with the dry-powder parking role.
+# 00859B / 00860B are TWD-denominated TPEx ETFs and must NOT be multiplied by USD/TWD.
 BONDS = {
     'SGOV_BOND_BUCKET': 'SGOV',
     'SPSB': 'SPSB',
     'BNDW': 'BNDW',
+    '00859B': '00859B.TWO',
+    '00860B': '00860B.TWO',
 }
+LOCAL_TWD_ASSETS = {'0050', '00859B', '00860B'}
 MENTOR_BOND_PRIMARY_EXAMPLES = ['SGOV', 'SPSB', 'BNDW', '00859B', '00860B']
 MENTOR_BOND_EXTENDED_EXAMPLES = ['SHY', 'IEF', 'SPIB', 'TLT', 'SPLB', '00719B']
-TAIWAN_BOND_CANDIDATES_REQUIRING_SEPARATE_FORMAL_DATA_PIPELINE = ['00859B', '00860B']
 RISK = {**STOCKS, **BONDS}
 PARKING_ASSET = 'SGOV_DRY_POWDER_BUCKET'
 PARKING_TICKER = 'SGOV'
@@ -39,6 +43,32 @@ base.STOCKS = STOCKS
 base.BONDS = BONDS
 base.RISK = RISK
 base.OUT = OUT
+
+
+def formal_prices_twd():
+    """Fetch current Mentor benchmark universe and normalize every series to TWD.
+
+    Taiwan-listed assets are already TWD and are left untouched. USD/LSE-USD assets
+    are converted with the same DEXTAUS series used by the existing benchmark helper.
+    This prevents the previous hidden error of multiplying 00859B/00860B by USD/TWD.
+    """
+    fx = base.fx_usdtwd()
+    out = {}
+    for name, ticker in RISK.items():
+        s = base.get_yf(ticker)
+        if s.empty:
+            out[name] = s
+            continue
+        if name in LOCAL_TWD_ASSETS:
+            twd = s.copy()
+        else:
+            twd = (s * fx.reindex(s.index, method='ffill')).dropna()
+        bad = twd.pct_change().abs() > 0.55
+        if bad.any():
+            twd = twd.loc[bad[bad].index[0]:]
+        twd.name = name
+        out[name] = twd
+    return out, fx
 
 
 def capital_conservation_check(model: str, res: dict | None) -> dict:
@@ -58,7 +88,7 @@ def capital_conservation_check(model: str, res: dict | None) -> dict:
 
 
 def main():
-    p, fx = base.prices_twd()
+    p, fx = formal_prices_twd()
     park = base.parking_index(fx)
     rows, results = [], {}
 
@@ -66,10 +96,11 @@ def main():
         'model': 'Case1_MentorS0B0_V70Tactical_V82_plus_BondV75_dynamic_common_pool',
         'status': 'BLOCKED_MISSING_COMPLETE_PIT_T1_DYNAMIC_EXECUTION_PIPELINE',
         'reason': (
-            'Latest Mentor v3.6 architecture is now locked: Mentor S0/B0 -> V70_2 total tactical '
-            'equity/bond/V70_ORIGINAL_DRY_POWDER budgets -> V82 and BondV75 security-level execution. '
-            'Formal Case 1 remains blocked until PIT/T+1 historical V70 inputs and complete dynamic '
-            'V82/BondV75 execution exist. No old fixed bond weights or cross-bucket shortcut is inserted.'
+            'Latest Mentor v3.6 architecture and formal mother-backtest design are locked: '
+            'Mentor S0/B0 -> V70_2 total tactical equity/bond/V70_ORIGINAL_DRY_POWDER budgets '
+            '-> V82 and BondV75 security-level execution. Formal Case 1 remains blocked until '
+            'the remaining PIT/T+1 inputs and complete dynamic V82/BondV75 execution exist. '
+            'No old fixed cross-asset shortcut is inserted.'
         ),
     })
 
@@ -87,7 +118,8 @@ def main():
 
     for name, assets, mode in specs:
         row, res = base.simulate(name, assets, mode, p, park)
-        rows.append(row); results[name] = res
+        rows.append(row)
+        results[name] = res
 
     expected_models = 1 + len(RISK) + 1 + len(RISK) + 1 + 1 + len(STOCKS) + 1
     df = pd.DataFrame(rows)
@@ -107,29 +139,36 @@ def main():
 
     audit = [{'asset': a, 'ticker': RISK[a], 'first_valid': str(s.index.min().date()) if len(s) else None,
               'last_valid': str(s.index.max().date()) if len(s) else None, 'n_obs': len(s)} for a, s in p.items()]
-    pd.DataFrame(audit).to_csv(OUT / 'data_audit.csv', index=False)
+    audit_df = pd.DataFrame(audit)
+    audit_df.to_csv(OUT / 'data_audit.csv', index=False)
 
     if not adf.empty:
         annual_contribution_qa = adf.groupby(['model', 'year']).external_contribution_twd.sum().reset_index()
         bad_contrib = annual_contribution_qa[annual_contribution_qa.external_contribution_twd > base.ANNUAL + 0.01]
     else:
-        annual_contribution_qa = pd.DataFrame(); bad_contrib = pd.DataFrame()
+        annual_contribution_qa = pd.DataFrame()
+        bad_contrib = pd.DataFrame()
     annual_contribution_qa.to_csv(OUT / 'annual_contribution_qa.csv', index=False)
 
     capital_df = pd.DataFrame([capital_conservation_check(name, res) for name, res in results.items()])
     capital_df.to_csv(OUT / 'capital_conservation_qa.csv', index=False)
     bad_capital = capital_df[(capital_df.status == 'OK') & (~capital_df.capital_conservation_pass)]
 
+    taiwan_data = audit_df[audit_df.asset.isin(['00859B', '00860B'])].copy()
+    taiwan_supported = bool(len(taiwan_data) == 2 and taiwan_data.n_obs.fillna(0).gt(0).all())
+
     status = {
         'engine': 'formal_benchmark_engine_v3',
         'mentor_version': 'v3.6.0',
+        'mother_backtest_source': 'Library 母規則回測.md 2026-09-10 00:56; experiment-design authority only',
         'formal_architecture': 'Mentor S0/B0 -> V70_2 tactical total budgets -> V82/BondV75 security-level execution -> undeployed execution budgets to SGOV_DRY_POWDER_BUCKET',
         'formal_window': '2005-01-01..2026-08-31',
         'mentor_equity_candidate_examples': list(STOCKS),
         'mentor_bond_primary_examples': MENTOR_BOND_PRIMARY_EXAMPLES,
         'mentor_bond_extended_examples': MENTOR_BOND_EXTENDED_EXAMPLES,
-        'benchmark_supported_us_bond_logical_assets': list(BONDS),
-        'taiwan_bond_candidates_pending_formal_data_pipeline': TAIWAN_BOND_CANDIDATES_REQUIRING_SEPARATE_FORMAL_DATA_PIPELINE,
+        'benchmark_supported_bond_logical_assets': list(BONDS),
+        'taiwan_primary_bond_data_supported': taiwan_supported,
+        'local_twd_assets_not_fx_converted': sorted(LOCAL_TWD_ASSETS),
         'mentor_current_run_bond_weights_hardcoded': False,
         'parking_asset_logical_role': PARKING_ASSET,
         'parking_ticker': PARKING_TICKER,
@@ -143,12 +182,15 @@ def main():
         'capital_conservation_failures': len(bad_capital),
         'case1_blocker': rows[0],
         'note': (
-            'Mechanical equal-weight comparators are benchmarks only. They are not Mentor or BondV75 target weights. '
-            'Taiwan-listed bond candidates require their own formal total-return/PIT-safe data path before inclusion.'
-        )
+            'Mechanical equal-weight/single-ETF comparators are benchmarks only. They are not Mentor '
+            'or BondV75 target weights. Latest Mentor primary Taiwan bond candidates are now included '
+            'using real post-listing TPEx histories and TWD accounting; pre-listing periods remain N/A.'
+        ),
     }
     (OUT / 'run_status.json').write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding='utf-8')
 
+    if not taiwan_supported:
+        raise RuntimeError('Taiwan primary bond candidate data unavailable; do not silently omit 00859B/00860B')
     if len(bad_contrib):
         raise RuntimeError('Contribution QA failed: > NT$1m in an effective year')
     if len(bad_capital):
