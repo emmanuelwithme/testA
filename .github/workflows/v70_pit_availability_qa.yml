@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'v70_pit_availability_qa.py'
+      - 'v70_pit_real10_formalize.py'
       - 'v70_treasury_tga_paged.py'
       - 'v70_fed_board_h41_probe.py'
       - 'v70_nyfed_rrp_probe.py'
@@ -25,6 +26,8 @@ jobs:
       - run: pip install pandas requests
       - name: Run PIT and availability hard-gate diagnostics
         run: python v70_pit_availability_qa.py
+      - name: Apply formally verified Treasury Real 10Y availability mapping
+        run: python v70_pit_real10_formalize.py
       - name: Upload PIT QA artifact
         if: always()
         uses: actions/upload-artifact@v4
