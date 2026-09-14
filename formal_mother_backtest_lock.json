@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "source_of_truth": {
+    "file": "母規則回測.md",
+    "library_file_id": "file_000000002674820ea405bb1939a41a92",
+    "source_last_modified_taipei": "2026-09-10 00:56",
+    "source_total_lines": 527,
+    "authority": "formal_backtest_experiment_design_and_validation"
+  },
+  "governance_precedence": {
+    "candidate_universe_authority": "Mentor.md latest formal version",
+    "equity_execution_authority": "V82.md latest formal version",
+    "bond_execution_authority": "債券V75.md latest formal version",
+    "tactical_allocator_authority": "V70_2.html latest formal version",
+    "experiment_design_authority": "母規則回測.md",
+    "note": "The mother backtest file governs experiment structure, fairness, PIT/T+1, accounting, metrics and robustness. Its embedded 2026-09-10 asset list is not allowed to override a later formal Mentor candidate-universe definition."
+  },
+  "formal_windows": {
+    "main": ["2005-01-01", "2026-08-31"],
+    "modern_subsample": ["2019-01-01", "2026-08-31"],
+    "stress_years": [2008, 2020, 2022]
+  },
+  "experiment_structure": {
+    "eight_test_groups_required": true,
+    "dynamic_strategy_primary_level": "portfolio_common_capital_pool",
+    "single_etf_results_role": "benchmark_only_not_V82_single_security_strategy_validation",
+    "mechanical_benchmark_groups": [2, 3, 4, 5, 6, 7, 8],
+    "dynamic_group": 1,
+    "original_2026_09_10_model_count": 33,
+    "model_count_may_change_only_when_later_Mentor_candidate_universe_changes": true
+  },
+  "fairness_and_execution": {
+    "annual_external_contribution_twd": 1000000,
+    "point_in_time_required": true,
+    "t_plus_1_required": true,
+    "capital_conservation_required": true,
+    "hidden_leverage_forbidden": true,
+    "actual_etf_only_before_listing_is_na": true,
+    "future_value_backfill_forbidden": true
+  },
+  "required_outputs": {
+    "opportunity_cost": true,
+    "is_oos": true,
+    "walk_forward": true,
+    "sensitivity": true,
+    "annual_risk_table": true,
+    "withdrawal_period_risk": true,
+    "stress_2008_2020_2022": true,
+    "xirr_mwr": true,
+    "twr_cagr": true,
+    "unitized_mdd": true,
+    "sharpe": true,
+    "sortino": true,
+    "calmar": true,
+    "recovery_time": true
+  },
+  "opportunity_cost_definitions": {
+    "vs_buy_and_hold": "Buy & Hold Ending Asset - Dynamic Ending Asset",
+    "vs_dca": "DCA Ending Asset - Dynamic Ending Asset",
+    "risk_compensation_also_report": ["XIRR difference", "TWR CAGR difference", "MDD improvement_or_deterioration", "Recovery difference"]
+  },
+  "formal_conclusion_gate": "No final V82/V75 performance conclusion unless the complete dynamic common-pool implementation, PIT/T+1, accounting QA and robustness checks pass."
+}
