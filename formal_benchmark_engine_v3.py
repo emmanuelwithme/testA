@@ -8,7 +8,7 @@ import pandas as pd
 
 import backtest_33_models_v2 as base
 
-# Current formal architecture (Mentor.md v3.6.0):
+# Current formal architecture (Mentor.md v3.7.0 / BondV75 v2.5.0):
 # Mentor owns long-run S0/B0, candidate universes and client constraints.
 # V70_2.html receives S0/B0 and outputs only total tactical equity/bond/dry-powder budgets.
 # V82 owns equity security-level execution; 債券V75 owns bond security-level execution.
@@ -20,19 +20,21 @@ STOCKS = {
     'VT': 'VT', 'VOO': 'VOO', 'QQQ': 'QQQ', '0050': '0050.TW',
     'SOXX': 'SOXX', 'PPH': 'PPH', 'NATO': 'NATO.L',
 }
-# Latest generic primary bond candidates from Mentor. SGOV_BOND_BUCKET is a logical
-# accounting role sharing physical ticker SGOV with the dry-powder parking role.
-# 00859B / 00860B are TWD-denominated TPEx ETFs and must NOT be multiplied by USD/TWD.
+# Latest generic primary bond candidates. BNDW was removed from generic new allocation
+# on 2026-09-15 and remains existing-holding management only under BondV75.
+# SGOV_BOND_BUCKET shares physical ticker SGOV with dry-powder parking but is a
+# separate accounting role. 00859B/00860B are TWD-denominated TPEx ETFs.
 BONDS = {
     'SGOV_BOND_BUCKET': 'SGOV',
     'SPSB': 'SPSB',
-    'BNDW': 'BNDW',
     '00859B': '00859B.TWO',
     '00860B': '00860B.TWO',
 }
+US_BOND_TARGET_WEIGHTS = {'SGOV_BOND_BUCKET': 0.70, 'SPSB': 0.30}
+TAIWAN_BOND_TARGET_WEIGHTS = {'00859B': 0.80, '00860B': 0.20}
 LOCAL_TWD_ASSETS = {'0050', '00859B', '00860B'}
-MENTOR_BOND_PRIMARY_EXAMPLES = ['SGOV', 'SPSB', 'BNDW', '00859B', '00860B']
-MENTOR_BOND_EXTENDED_EXAMPLES = ['SHY', 'IEF', 'SPIB', 'TLT', 'SPLB', '00719B']
+MENTOR_BOND_PRIMARY_EXAMPLES = ['SGOV', 'SPSB', '00859B', '00860B']
+MENTOR_BOND_EXTENDED_EXAMPLES = ['BNDW', 'SHY', 'IEF', 'SPIB', 'TLT', 'SPLB', '00719B']
 RISK = {**STOCKS, **BONDS}
 PARKING_ASSET = 'SGOV_DRY_POWDER_BUCKET'
 PARKING_TICKER = 'SGOV'
@@ -50,7 +52,6 @@ def formal_prices_twd():
 
     Taiwan-listed assets are already TWD and are left untouched. USD/LSE-USD assets
     are converted with the same DEXTAUS series used by the existing benchmark helper.
-    This prevents the previous hidden error of multiplying 00859B/00860B by USD/TWD.
     """
     fx = base.fx_usdtwd()
     out = {}
@@ -96,7 +97,7 @@ def main():
         'model': 'Case1_MentorS0B0_V70Tactical_V82_plus_BondV75_dynamic_common_pool',
         'status': 'BLOCKED_MISSING_COMPLETE_PIT_T1_DYNAMIC_EXECUTION_PIPELINE',
         'reason': (
-            'Latest Mentor v3.6 architecture and formal mother-backtest design are locked: '
+            'Latest Mentor v3.7 / BondV75 v2.5 architecture and formal mother-backtest design are locked: '
             'Mentor S0/B0 -> V70_2 total tactical equity/bond/V70_ORIGINAL_DRY_POWDER budgets '
             '-> V82 and BondV75 security-level execution. Formal Case 1 remains blocked until '
             'the remaining PIT/T+1 inputs and complete dynamic V82/BondV75 execution exist. '
@@ -159,7 +160,8 @@ def main():
 
     status = {
         'engine': 'formal_benchmark_engine_v3',
-        'mentor_version': 'v3.6.0',
+        'mentor_version': 'v3.7.0',
+        'bond_v75_version': 'v2.5.0',
         'mother_backtest_source': 'Library 母規則回測.md 2026-09-10 00:56; experiment-design authority only',
         'formal_architecture': 'Mentor S0/B0 -> V70_2 tactical total budgets -> V82/BondV75 security-level execution -> undeployed execution budgets to SGOV_DRY_POWDER_BUCKET',
         'formal_window': '2005-01-01..2026-08-31',
@@ -167,6 +169,9 @@ def main():
         'mentor_bond_primary_examples': MENTOR_BOND_PRIMARY_EXAMPLES,
         'mentor_bond_extended_examples': MENTOR_BOND_EXTENDED_EXAMPLES,
         'benchmark_supported_bond_logical_assets': list(BONDS),
+        'bondv75_us_long_term_target_weights': US_BOND_TARGET_WEIGHTS,
+        'bondv75_taiwan_long_term_target_weights': TAIWAN_BOND_TARGET_WEIGHTS,
+        'bndw_generic_new_allocation_allowed': False,
         'taiwan_primary_bond_data_supported': taiwan_supported,
         'local_twd_assets_not_fx_converted': sorted(LOCAL_TWD_ASSETS),
         'mentor_current_run_bond_weights_hardcoded': False,
@@ -183,8 +188,10 @@ def main():
         'case1_blocker': rows[0],
         'note': (
             'Mechanical equal-weight/single-ETF comparators are benchmarks only. They are not Mentor '
-            'or BondV75 target weights. Latest Mentor primary Taiwan bond candidates are now included '
-            'using real post-listing TPEx histories and TWD accounting; pre-listing periods remain N/A.'
+            'or BondV75 target weights. BNDW is excluded from generic new-allocation benchmarks after '
+            'the 2026-09-15 formal rule change, while existing-holding management remains valid. '
+            'Taiwan-listed 00859B/00860B use real post-listing TPEx histories and TWD accounting; '
+            'pre-listing periods remain N/A.'
         ),
     }
     (OUT / 'run_status.json').write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding='utf-8')
