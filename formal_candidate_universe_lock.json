@@ -1,11 +1,11 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "source_of_truth": {
     "file": "Mentor.md",
     "drive_file_id": "1oeiito_HRs10w50YjqImIfir8R2qdBdw",
-    "source_version": "v3.6.0",
-    "source_last_modified_taipei": "2026-09-14 01:21",
-    "captured_for_backtest_qa_taipei": "2026-09-14",
+    "source_version": "v3.7.0",
+    "source_last_modified_taipei": "2026-09-15 04:08",
+    "captured_for_backtest_qa_taipei": "2026-09-15",
     "authority": "strategic_S0_B0_candidate_universe_and_client_constraints"
   },
   "governance": {
@@ -13,10 +13,10 @@
     "tactical_allocator_executable_rule": "V70_2.html",
     "tactical_allocator_output_contract_version": "v1.1.1",
     "tactical_allocator_explanatory_rule": "V70_16白皮書.md",
-    "tactical_allocator_explanatory_version": "v3.4.1",
+    "tactical_allocator_explanatory_version": "v3.5.0",
     "equity_execution_rule": "V82.md",
     "bond_execution_rule": "債券V75.md",
-    "bond_execution_version": "v2.4.0",
+    "bond_execution_version": "v2.5.0",
     "backtest_design_rule": "母規則回測.md",
     "backtest_design_file_status": "RESOLVED_IN_LIBRARY_2026-09-10_0056",
     "backtest_design_lock_file": "formal_mother_backtest_lock.json",
@@ -28,14 +28,14 @@
   },
   "generic_priority_candidate_pools": {
     "equity_examples": ["VT", "VOO", "QQQ", "0050", "SOXX", "PPH", "NATO"],
-    "bond_primary_examples": ["SGOV", "SPSB", "BNDW", "00859B", "00860B"]
+    "bond_primary_examples": ["SGOV", "SPSB", "00859B", "00860B"]
   },
   "existing_holding_or_extended_candidates": {
-    "bond": ["SHY", "IEF", "SPIB", "TLT", "SPLB", "00719B"]
+    "bond": ["BNDW", "SHY", "IEF", "SPIB", "TLT", "SPLB", "00719B"]
   },
   "bond_v75_execution_policy": {
     "source_file": "債券V75.md",
-    "source_version": "v2.4.0",
+    "source_version": "v2.5.0",
     "life_stage_us_taiwan_bond_subbucket_pct": {
       "1": [50, 50],
       "2": [70, 30],
@@ -49,14 +49,15 @@
       "10": [40, 60]
     },
     "us_bond_subbucket_target_weights": {
-      "SGOV_BOND_BUCKET": 0.50,
-      "SPSB": 0.35,
-      "BNDW": 0.15
+      "SGOV_BOND_BUCKET": 0.70,
+      "SPSB": 0.30
     },
     "taiwan_bond_subbucket_target_weights": {
       "00859B": 0.80,
       "00860B": 0.20
     },
+    "bndw_generic_new_allocation_allowed": false,
+    "bndw_existing_holding_management_only": true,
     "weights_are_long_term_target_map_not_forced_cross_border_transfer": true,
     "deployment_still_subject_to_bond_v75_market_safety_and_wait_rules": true
   },
@@ -90,11 +91,12 @@
     "double_count_sgov_forbidden": true
   },
   "scope_notes": [
-    "Mentor v3.6 owns long-run S0/B0, candidate universes, client constraints and project state; it does not decide current-run per-asset deployment sizes.",
+    "Mentor v3.7 owns long-run S0/B0, candidate universes, client constraints and project state; it does not decide current-run per-asset deployment sizes.",
     "V70_2.html Output Contract v1.1.1 is the executable tactical small-knob source: it receives S0/B0, computes macro-driven C and T, and outputs only total equity, total bond and V70_ORIGINAL_DRY_POWDER budgets plus run/life-stage metadata. It must not select individual stocks or bonds.",
     "V82 owns stock/equity-ETF security-level execution.",
-    "BondV75 v2.4 owns the formal bond execution map: life-stage US/Taiwan bond-sub-bucket targets, US SGOV/SPSB/BNDW 50/35/15, Taiwan 00859B/00860B 80/20, and the market-safety/deployment decision.",
-    "Mentor v3.6 forbids attributing SGOV 50% or other per-bond current-run weights to Mentor. Fixed bond target maps, where applicable, belong to BondV75, not Mentor or V70.",
+    "BondV75 v2.5 owns the formal bond execution map: life-stage US/Taiwan bond-sub-bucket targets, US SGOV/SPSB 70/30, Taiwan 00859B/00860B 80/20, and the market-safety/deployment decision.",
+    "BNDW is removed from generic new-allocation candidates as of 2026-09-15. Existing BNDW remains manageable under BondV75 as an existing holding; historical snapshots are not rewritten.",
+    "Mentor v3.7 forbids attributing SGOV 70% or other per-bond current-run weights to Mentor. Fixed long-run bond target maps belong to BondV75, not Mentor or V70.",
     "SGOV_BOND_BUCKET and SGOV_DRY_POWDER_BUCKET share ticker SGOV but are separate accounting roles and must never be double-counted.",
     "Candidate examples are a generic research starting universe, not mandatory holdings. Client-specific preferred/existing assets require a separate client snapshot when backtested.",
     "The formal mother-backtest design was located in Library as 母規則回測.md, last modified 2026-09-10 00:56, and is reproducibly summarized by formal_mother_backtest_lock.json. Its experiment-design authority does not override later Mentor candidate-universe authority.",
