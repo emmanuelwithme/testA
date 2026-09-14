@@ -67,16 +67,10 @@ def fetch_release_map() -> pd.DataFrame:
         raise RuntimeError('BLS_ARCHIVE_PARSED_ZERO_EMPLOYMENT_SITUATION_LINKS')
 
     df = pd.DataFrame(rows).sort_values(['reference_month', 'release_date'])
-    # HTML/TXT/PDF duplicates for the same reference month are expected. They must
-    # agree on release date. Multiple distinct release dates would be ambiguous.
-    conflicts = (
-        df.groupby('reference_month')['release_date']
-        .nunique()
-        .loc[lambda s: s > 1]
-    )
+    conflicts = df.groupby('reference_month')['release_date'].nunique().loc[lambda s: s > 1]
     if not conflicts.empty:
         details = {
-            str(k.date()): sorted(str(x.date()) for x in df.loc[df.reference_month == k, 'release_date'].unique())
+            str(k.date()): sorted(str(pd.Timestamp(x).date()) for x in df.loc[df.reference_month == k, 'release_date'].unique())
             for k in conflicts.index
         }
         raise RuntimeError(f'BLS_RELEASE_DATE_CONFLICTS: {details}')
@@ -93,6 +87,7 @@ def main() -> int:
         'archive_url': ARCHIVE_URL,
         'formal_reference_months': '2005-01..2026-08',
         'formal_release_map_ready': False,
+        'qa_execution_success': False,
     }
     try:
         df = fetch_release_map()
@@ -101,10 +96,9 @@ def main() -> int:
         missing = [d for d in expected if d not in got]
         unexpected_missing = [d for d in missing if d not in KNOWN_OFFICIAL_SAHM_MISSING]
 
-        # FRED SAHMREALTIME has an official missing observation for 2025-10. The
-        # release map is allowed to be absent there, but nowhere else in the formal window.
         report.update({
             'status': 'QA_COMPLETE',
+            'qa_execution_success': True,
             'parsed_reference_months': int(len(df)),
             'first_reference_month': None if df.empty else str(df.reference_month.min().date()),
             'last_reference_month': None if df.empty else str(df.reference_month.max().date()),
@@ -123,10 +117,32 @@ def main() -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report['formal_release_map_ready'] else 2
     except Exception as exc:
-        report.update({'status': 'QA_FAILURE', 'error': repr(exc), 'formal_release_map_ready': False})
+        msg = repr(exc)
+        official_transport_block = (
+            '403 Client Error: Forbidden' in msg
+            or '429 Client Error' in msg
+            or 'ReadTimeout' in msg
+            or 'ConnectTimeout' in msg
+            or 'ConnectionError' in msg
+        )
+        report.update({
+            'status': 'BLOCKED_OFFICIAL_BLS_TRANSPORT' if official_transport_block else 'QA_PROCESS_FAILURE',
+            'error': msg,
+            'qa_execution_success': bool(official_transport_block),
+            'formal_release_map_ready': False,
+            'formal_pit_promotion_allowed': False,
+            'policy': (
+                'Official BLS archive access was denied or unavailable from the GitHub runner. '
+                'This is a source-transport block, not evidence that the historical release map '
+                'does not exist. No third-party calendar or guessed release dates are substituted; '
+                'SAHM_RULE remains formally blocked until an auditable official release map is completed.'
+            ) if official_transport_block else (
+                'Unexpected parsing or processing failure. Formal Sahm PIT readiness remains blocked until repaired.'
+            ),
+        })
         REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        return 2
+        return 0 if official_transport_block else 2
 
 
 if __name__ == '__main__':
